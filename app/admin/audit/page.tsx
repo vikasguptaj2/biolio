@@ -1,6 +1,8 @@
 import { ShieldCheck } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+export const instant = false;
+
 export default async function AdminAuditPage() {
   const supabase = createAdminClient();
 

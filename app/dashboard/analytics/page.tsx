@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 import { getSessionContext, createClient } from "@/lib/supabase/server";
 
+export const instant = false;
+
 export default async function AnalyticsDashboardPage() {
   const { workspace } = await getSessionContext();
   if (!workspace) return null;

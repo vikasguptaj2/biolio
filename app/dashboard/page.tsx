@@ -15,6 +15,8 @@ import {
 import { Instagram } from "@/components/icons/instagram";
 import { getSessionContext, createClient } from "@/lib/supabase/server";
 
+export const instant = false;
+
 export default async function DashboardPage() {
   const { profile, workspace } = await getSessionContext();
 

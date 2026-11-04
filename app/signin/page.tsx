@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, AlertCircle, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-export default function SignInPage() {
+function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams?.get("redirectTo") || "/dashboard";
@@ -176,6 +176,14 @@ export default function SignInPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#f4efe7]" />}>
+      <SignInForm />
+    </Suspense>
   );
 }
 

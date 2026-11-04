@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-export default function SignUpPage() {
+function SignUpForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialHandle = searchParams?.get("handle") || "";
@@ -181,6 +181,14 @@ export default function SignUpPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#f4efe7]" />}>
+      <SignUpForm />
+    </Suspense>
   );
 }
 

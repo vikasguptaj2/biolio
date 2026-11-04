@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Clock, Calendar } from "lucide-react";
@@ -10,35 +11,66 @@ interface PageProps {
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { handle, slug } = await params;
-  const cleanHandle = handle.toLowerCase();
+  try {
+    const { handle, slug } = await params;
+    const cleanHandle = handle.toLowerCase();
 
-  const supabase = await createClient();
-  const { data: profile } = await supabase
-    .from("bio_profiles")
-    .select("id, display_name")
-    .eq("handle", cleanHandle)
-    .maybeSingle();
+    const supabase = await createClient();
+    const { data: profile } = await supabase
+      .from("bio_profiles")
+      .select("id, workspace_id, handle, display_name, is_published, current_published_version_id, moderation_state")
+      .eq("handle", cleanHandle)
+      .maybeSingle();
 
-  if (!profile) return { title: "Article Not Found | Biolio" };
+    if (!profile || !profile.is_published || profile.moderation_state === "banned") {
+      return { title: "Article Not Found | Biolio" };
+    }
 
-  const { data: post } = await supabase
-    .from("bio_blog_posts")
-    .select("title, excerpt, seo_title, seo_description")
-    .eq("bio_profile_id", profile.id)
-    .eq("slug", slug)
-    .eq("status", "published")
-    .maybeSingle();
+    const { data: post } = await supabase
+      .from("bio_blog_posts")
+      .select("title, excerpt, seo_title, seo_description")
+      .eq("bio_profile_id", profile.id)
+      .eq("slug", slug)
+      .eq("status", "published")
+      .maybeSingle();
 
-  if (!post) return { title: "Article Not Found | Biolio" };
+    if (!post) return { title: "Article Not Found | Biolio" };
 
-  return {
-    title: `${post.seo_title || post.title} — ${profile.display_name}`,
-    description: post.seo_description || post.excerpt || `An essay by ${profile.display_name}`,
-  };
+    return {
+      title: `${post.seo_title || post.title} — ${profile.display_name}`,
+      description: post.seo_description || post.excerpt || `An essay by ${profile.display_name}`,
+    };
+  } catch {
+    return { title: "Article | Biolio" };
+  }
 }
 
-export default async function BlogPostPage({ params }: PageProps) {
+export default function BlogPostPage({ params }: PageProps) {
+  return (
+    <Suspense fallback={<BlogPostSkeleton />}>
+      <BlogPostContent params={params} />
+    </Suspense>
+  );
+}
+
+function BlogPostSkeleton() {
+  return (
+    <div className="min-h-screen py-12 px-6 lg:px-8 bg-[#fffdf8] animate-pulse">
+      <div className="max-w-2xl mx-auto space-y-6">
+        <div className="h-4 w-28 bg-[#e5dcd1] rounded-md" />
+        <div className="h-10 w-3/4 bg-[#e5dcd1] rounded-md" />
+        <div className="h-4 w-1/2 bg-[#e5dcd1] rounded-md" />
+        <div className="space-y-3 pt-6">
+          <div className="h-4 bg-[#e5dcd1] rounded-md" />
+          <div className="h-4 bg-[#e5dcd1] rounded-md" />
+          <div className="h-4 w-5/6 bg-[#e5dcd1] rounded-md" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+async function BlogPostContent({ params }: PageProps) {
   const { handle, slug } = await params;
   const cleanHandle = handle.toLowerCase();
 
@@ -46,15 +78,17 @@ export default async function BlogPostPage({ params }: PageProps) {
 
   const { data: profile } = await supabase
     .from("bio_profiles")
-    .select("id, display_name, handle, template_id")
+    .select("id, workspace_id, handle, display_name, is_published, current_published_version_id, moderation_state")
     .eq("handle", cleanHandle)
     .maybeSingle();
 
-  if (!profile) notFound();
+  if (!profile || !profile.is_published || profile.moderation_state === "banned") {
+    notFound();
+  }
 
   const { data: post } = await supabase
     .from("bio_blog_posts")
-    .select("*")
+    .select("id, bio_profile_id, workspace_id, title, slug, category, excerpt, sanitized_html, cover_media_id, reading_time_minutes, seo_title, seo_description, status, published_at")
     .eq("bio_profile_id", profile.id)
     .eq("slug", slug)
     .eq("status", "published")
@@ -62,7 +96,24 @@ export default async function BlogPostPage({ params }: PageProps) {
 
   if (!post) notFound();
 
-  const templateId = profile.template_id || "atelier-editorial";
+  // Resolve template from published snapshot or fallback
+  let templateId = "atelier-editorial";
+  if (profile.current_published_version_id) {
+    const { data: snapshot } = await supabase
+      .from("bio_published_versions")
+      .select("snapshot_payload")
+      .eq("id", profile.current_published_version_id)
+      .maybeSingle();
+    const payload = snapshot?.snapshot_payload as Record<string, unknown> | undefined;
+    const profileObj = payload?.profile as Record<string, unknown> | undefined;
+    templateId =
+      (typeof payload?.template_id === "string"
+        ? payload.template_id
+        : typeof profileObj?.template_id === "string"
+        ? profileObj.template_id
+        : "atelier-editorial");
+  }
+
   const themeConfig = BIOLIO_TEMPLATES[templateId] || BIOLIO_TEMPLATES["atelier-editorial"];
   const theme = themeConfig.theme;
 
@@ -150,12 +201,12 @@ export default async function BlogPostPage({ params }: PageProps) {
         >
           {post.sanitized_html ? (
             <div dangerouslySetInnerHTML={{ __html: post.sanitized_html }} />
+          ) : post.excerpt ? (
+            <p className="text-sm sm:text-base leading-relaxed">{post.excerpt}</p>
           ) : (
-            post.content_markdown.split("\n\n").map((para: string, idx: number) => (
-              <p key={idx} className="text-sm sm:text-base leading-relaxed">
-                {para}
-              </p>
-            ))
+            <p className="text-sm sm:text-base leading-relaxed italic" style={{ color: theme.mutedText }}>
+              No content available.
+            </p>
           )}
         </div>
 
@@ -182,4 +233,3 @@ export default async function BlogPostPage({ params }: PageProps) {
     </div>
   );
 }
-

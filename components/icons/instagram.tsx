@@ -20,3 +20,4 @@ export function Instagram({ className = "h-4 w-4", ...props }: React.SVGProps<SV
   );
 }
 
+export const InstagramIcon = Instagram;

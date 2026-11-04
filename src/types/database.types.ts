@@ -2992,6 +2992,13 @@ export type Database = {
             referencedRelation: "user_profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "workspace_entitlements_workspace_id_fkey"
+            columns: ["id"]
+            isOneToOne: true
+            referencedRelation: "workspace_entitlements"
+            referencedColumns: ["workspace_id"]
+          },
         ]
       }
     }
@@ -2999,6 +3006,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_workspace_plan_entitlements: {
+        Args: {
+          p_billing_interval?: string
+          p_override_reason?: string
+          p_plan_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      admin_override_workspace_status: {
+        Args: {
+          p_override_reason?: string
+          p_status: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       can_edit_workspace: { Args: { p_workspace_id: string }; Returns: boolean }
       confirm_coupon_redemption: {
         Args: { p_redemption_id: string; p_subscription_id: string }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
@@ -12,7 +12,7 @@ import { Instagram } from "@/components/icons/instagram";
 import { createClient } from "@/lib/supabase/client";
 import { BIOLIO_TEMPLATES } from "@/lib/design-tokens";
 
-export default function OnboardingPage() {
+function OnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -98,8 +98,8 @@ export default function OnboardingPage() {
 
       if (error) throw error;
 
-      const result = data as unknown as ProvisionResponse;
-      if (!result?.ok) {
+      const result = data as unknown as (ProvisionResponse & { status?: string });
+      if (!result?.ok && result?.status !== "provisioned") {
         throw new Error(result?.message || "Failed to provision workspace.");
       }
 
@@ -378,6 +378,14 @@ export default function OnboardingPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function OnboardingPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#f4efe7]" />}>
+      <OnboardingContent />
+    </Suspense>
   );
 }
 

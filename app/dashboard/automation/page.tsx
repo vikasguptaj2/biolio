@@ -10,6 +10,11 @@ import {
 } from "lucide-react";
 import { Instagram } from "@/components/icons/instagram";
 import { createClient } from "@/lib/supabase/client";
+import {
+  evaluateWorkspaceEntitlements,
+  type EvaluatedWorkspaceEntitlements,
+} from "@/lib/entitlements";
+import { ProductLockPaywall } from "@/components/dashboard/feature-lock";
 
 interface AutomationRuleItem {
   id: string;
@@ -37,6 +42,7 @@ export default function AutomationDashboardPage() {
   const [workspaceId, setWorkspaceId] = useState<string>("");
   const [connection, setConnection] = useState<InstagramConnectionItem | null>(null);
   const [rules, setRules] = useState<AutomationRuleItem[]>([]);
+  const [entitlements, setEntitlements] = useState<EvaluatedWorkspaceEntitlements | null>(null);
 
   // Modal / Creator State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -71,6 +77,24 @@ export default function AutomationDashboardPage() {
         if (!member?.workspace_id) return;
         const wsId = member.workspace_id;
         setWorkspaceId(wsId);
+
+        // Fetch workspace and entitlements
+        const { data: ws } = await supabase
+          .from("workspaces")
+          .select("id, slug, intended_modules, workspace_entitlements(*)")
+          .eq("id", wsId)
+          .single();
+
+        if (ws) {
+          const wsObj = ws as unknown as {
+            workspace_entitlements?: Record<string, unknown> | Array<Record<string, unknown>> | null;
+            intended_modules?: string[] | null;
+          };
+          const rawEnt = Array.isArray(wsObj.workspace_entitlements)
+            ? wsObj.workspace_entitlements[0]
+            : wsObj.workspace_entitlements;
+          setEntitlements(evaluateWorkspaceEntitlements(rawEnt, wsObj.intended_modules));
+        }
 
         // Fetch connection
         const { data: conn } = await supabase
@@ -194,6 +218,17 @@ export default function AutomationDashboardPage() {
         <span className="h-4 w-4 rounded-full border-2 border-[#f36b3f] border-t-transparent animate-spin mr-2" />
         Loading Automation Engine...
       </div>
+    );
+  }
+
+  // Strict Single-Product Feature Lock: Bio-only plans cannot access automation
+  if (entitlements?.isAutomationProductLocked) {
+    return (
+      <ProductLockPaywall
+        lockedProduct="automation"
+        currentPlanLabel={entitlements.activePlanLabel}
+        lockReason={entitlements.automationLockReason}
+      />
     );
   }
 

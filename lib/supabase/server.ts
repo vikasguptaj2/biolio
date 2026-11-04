@@ -1,9 +1,12 @@
 import "server-only";
 import { createServerClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import type { Database } from "@/src/types/database.types";
 
-export async function createClient() {
+export type TypedSupabaseClient = SupabaseClient<Database>;
+
+export async function createClient(): Promise<TypedSupabaseClient> {
   const cookieStore = await cookies();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -15,24 +18,26 @@ export async function createClient() {
     );
   }
 
-  return createServerClient<Database>(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
+  return (createServerClient as unknown as (...args: unknown[]) => SupabaseClient<Database>)(
+    supabaseUrl,
+    supabaseAnonKey,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options as Parameters<typeof cookieStore.set>[2])
+            );
+          } catch {
+            // The `setAll` method was called from a Server Component.
+          }
+        },
       },
-      setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options as Parameters<typeof cookieStore.set>[2])
-          );
-        } catch {
-          // The `setAll` method was called from a Server Component.
-          // This can be ignored if you have middleware refreshing
-          // user sessions.
-        }
-      },
-    },
-  });
+    }
+  );
 }
 
 /**
@@ -59,13 +64,19 @@ export async function getSessionContext() {
   // Fetch user's active workspace membership (or default one)
   const { data: membership } = await supabase
     .from("workspace_members")
-    .select("*, workspaces(*)")
+    .select("workspace_id, role, status")
     .eq("user_id", user.id)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .single();
 
-  const workspace = membership?.workspaces ?? null;
+  if (!membership?.workspace_id) {
+    return { user, profile, workspace: null, membership: null };
+  }
+
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("*")
+    .eq("id", membership.workspace_id)
+    .single();
 
   return {
     user,
@@ -74,4 +85,3 @@ export async function getSessionContext() {
     membership,
   };
 }
-

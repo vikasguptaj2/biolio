@@ -1,60 +1,99 @@
-import { ShieldAlert } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { FeatureFlagToggleButton } from "@/components/admin/admin-controls";
+import { Flag, ShieldAlert, CheckCircle2 } from "lucide-react";
+
+export const instant = false;
 
 export default async function AdminFlagsPage() {
-  const supabase = createAdminClient();
+  const adminDb = createAdminClient();
 
-  const { data: settings } = await supabase
-    .from("platform_settings")
-    .select("*");
+  const { data: flags } = await adminDb
+    .from("feature_flags")
+    .select("*")
+    .order("key", { ascending: true });
 
   return (
-    <div className="p-6 lg:p-10 max-w-7xl mx-auto space-y-8">
+    <div className="space-y-8">
       <div>
-        <h1 className="font-editorial text-3xl sm:text-4xl font-bold text-white mb-2">
-          Emergency Killswitches &amp; Feature Flags
+        <div className="inline-flex items-center gap-2 rounded-full bg-[#a62639]/20 border border-[#a62639]/40 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-[#ff8f85] mb-3">
+          <Flag className="h-3.5 w-3.5" />
+          Operational Circuit Breakers
+        </div>
+        <h1 className="font-display text-3xl font-extrabold text-white tracking-tight">
+          Global Feature Flags &amp; Killswitches
         </h1>
-        <p className="text-xs text-[#9e94a3]">
-          Fail-closed global switches and gradual rollout flags across the entire platform.
+        <p className="text-xs text-[#9e93a4] mt-1">
+          Seeded operational killswitches from <code className="text-white">006_v6_seeds_and_bootstrap.sql</code>. Toggle circuit breakers live to halt Meta webhook ingestion or outbound DM dispatch during incidents.
         </p>
       </div>
 
-      {/* Emergency Platform Switches */}
-      <div className="rounded-2xl border border-[#26202f] bg-[#18141f] p-7 shadow-xs">
-        <div className="flex items-center gap-2 pb-4 border-b border-[#26202f] mb-6">
-          <ShieldAlert className="h-5 w-5 text-[#f36b3f]" />
-          <h3 className="font-editorial text-xl font-bold text-white">
-            Global Emergency Killswitches ({settings?.length || 0})
-          </h3>
-        </div>
-
-        <div className="space-y-4">
-          {settings && settings.length > 0 ? (
-            settings.map((setting) => (
+      <div className="grid grid-cols-1 gap-4">
+        {flags && flags.length > 0 ? (
+          flags.map((flag: { key: string; description: string | null; is_enabled: boolean }) => {
+            const isKillswitch = flag.key.startsWith("killswitch.");
+            return (
               <div
-                key={setting.key}
-                className="p-4 rounded-xl border border-[#26202f] bg-[#120f17] flex items-center justify-between"
+                key={flag.key}
+                className={`rounded-2xl border p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                  isKillswitch && flag.is_enabled
+                    ? "border-[#a62639] bg-[#a62639]/15"
+                    : "border-[#2e2638] bg-[#1d1824]"
+                }`}
               >
                 <div>
-                  <div className="text-xs font-bold text-white font-mono">
-                    {setting.key}
+                  <div className="flex items-center gap-2.5 mb-1">
+                    <span className="font-mono text-sm font-bold text-white">
+                      {flag.key}
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                        isKillswitch
+                          ? "bg-[#a62639]/25 text-[#ff8f85]"
+                          : "bg-[#c9b5f4]/20 text-[#c9b5f4]"
+                      }`}
+                    >
+                      {isKillswitch ? "Killswitch" : "Feature Flag"}
+                    </span>
                   </div>
-                  <div className="text-[11px] text-[#9e94a3] mt-0.5">
-                    Version: v{setting.version} &bull; Public Readable:{" "}
-                    {setting.is_public_readable ? "Yes" : "No"}
-                  </div>
+                  <p className="text-xs text-[#9e93a4]">{flag.description}</p>
                 </div>
-                <span className="rounded-full bg-[#1b332b] px-3 py-1 text-xs font-bold text-[#6ac2a2]">
-                  {JSON.stringify(setting.value)}
-                </span>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  {flag.is_enabled ? (
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold ${
+                        isKillswitch
+                          ? "bg-[#a62639]/30 text-[#ff8f85]"
+                          : "bg-[#277a67]/25 text-[#6ac2a2]"
+                      }`}
+                    >
+                      {isKillswitch ? (
+                        <ShieldAlert className="h-4 w-4" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4" />
+                      )}
+                      {isKillswitch ? "KILLSWITCH ACTIVE" : "ENABLED"}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-[#2a2333] px-3.5 py-2 text-xs font-bold text-[#9e93a4]">
+                      {isKillswitch ? "Nominal (Inactive)" : "Disabled"}
+                    </span>
+                  )}
+
+                  <FeatureFlagToggleButton
+                    flagKey={flag.key}
+                    isEnabled={Boolean(flag.is_enabled)}
+                    isKillswitch={isKillswitch}
+                  />
+                </div>
               </div>
-            ))
-          ) : (
-            <div className="p-4 rounded-xl border border-[#26202f] bg-[#120f17] text-xs text-[#7c727e]">
-              No custom platform settings active.
-            </div>
-          )}
-        </div>
+            );
+          })
+        ) : (
+          <div className="rounded-2xl border border-[#2e2638] bg-[#1d1824] p-8 text-center text-xs text-[#9e93a4]">
+            No feature flags found. Run migration 006 to seed global killswitches.
+          </div>
+        )}
       </div>
     </div>
   );

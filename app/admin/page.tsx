@@ -8,6 +8,8 @@ import {
 import { Instagram } from "@/components/icons/instagram";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+export const instant = false;
+
 export default async function AdminOverviewPage() {
   const supabase = createAdminClient();
 

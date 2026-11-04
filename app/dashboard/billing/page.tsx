@@ -56,12 +56,21 @@ export default function BillingDashboardPage() {
 
         const { data: member } = await supabase
           .from("workspace_members")
-          .select("workspace_id, workspaces(id, name, slug)")
+          .select("workspace_id")
           .eq("user_id", user.id)
           .single();
 
         if (!member?.workspace_id) return;
-        setWorkspace(member.workspaces as unknown as WorkspaceData);
+
+        const { data: ws } = await supabase
+          .from("workspaces")
+          .select("id, name, slug")
+          .eq("id", member.workspace_id)
+          .single();
+
+        if (ws) {
+          setWorkspace(ws as unknown as WorkspaceData);
+        }
 
         const { data: ent } = await supabase
           .from("workspace_entitlements")

@@ -103,7 +103,7 @@ export function MarketingFooter() {
 
         {/* Bottom bar */}
         <div className="pt-8 border-t border-[#342b3d] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#7c727e]">
-          <div>&copy; {new Date().getFullYear()} Biolio Technologies Inc. All rights reserved.</div>
+          <div>&copy; 2026 Biolio Technologies Inc. All rights reserved.</div>
           <div className="flex gap-6">
             <span className="hover:text-[#b9aebb] cursor-pointer">Privacy Policy</span>
             <span className="hover:text-[#b9aebb] cursor-pointer">Terms of Service</span>

@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-interface WorkspaceDetails {
+export interface WorkspaceDetails {
   id: string;
   name: string;
   slug: string;
@@ -36,16 +36,23 @@ export default function SettingsDashboardPage() {
 
         const { data: member } = await supabase
           .from("workspace_members")
-          .select("workspace_id, workspaces(*)")
+          .select("workspace_id")
           .eq("user_id", user.id)
           .single();
 
-        if (member?.workspaces) {
-          const ws = member.workspaces as unknown as WorkspaceDetails;
-          setWorkspaceId(ws.id);
-          setWorkspaceName(ws.name || "");
-          setSlug(ws.slug || "");
-          setCreatorRole(ws.creator_role || "Creator / Influencer");
+        if (member?.workspace_id) {
+          const { data: ws } = await supabase
+            .from("workspaces")
+            .select("id, name, slug, creator_role")
+            .eq("id", member.workspace_id)
+            .single();
+
+          if (ws) {
+            setWorkspaceId(ws.id);
+            setWorkspaceName(ws.name || "");
+            setSlug(ws.slug || "");
+            setCreatorRole(ws.creator_role || "Creator / Influencer");
+          }
         }
       } catch (err) {
         console.error("Error loading settings", err);

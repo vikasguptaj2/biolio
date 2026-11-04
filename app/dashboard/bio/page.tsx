@@ -1,410 +1,785 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { BIO_TEMPLATES } from "@/lib/design-tokens";
+import {
+  evaluateWorkspaceEntitlements,
+  type EvaluatedWorkspaceEntitlements,
+} from "@/lib/entitlements";
+import {
+  ProductLockPaywall,
+  FeatureTierBanner,
+} from "@/components/dashboard/feature-lock";
 import {
   Globe,
   Plus,
   Trash2,
   ExternalLink,
-  Save,
   CheckCircle2,
-  Eye,
-  Camera,
+  Loader2,
+  Sparkles,
+  Image as ImageIcon,
+  Briefcase,
+  BookOpen,
+  Mail,
+  Palette,
+  Lock,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
-import { BIOLIO_TEMPLATES } from "@/lib/design-tokens";
 
-interface BioLinkItem {
-  id?: string;
-  title: string;
-  url: string;
-  is_visible: boolean;
-  is_featured: boolean;
-  position: number;
-}
+type StudioTab =
+  | "identity"
+  | "links"
+  | "gallery"
+  | "collaborations"
+  | "blog"
+  | "inquiries"
+  | "templates";
 
 export default function BioStudioPage() {
-  const [activeTab, setActiveTab] = useState<
-    "profile" | "links" | "gallery" | "collabs" | "blog" | "theme"
-  >("profile");
+  const supabase = createClient();
 
+  const [activeTab, setActiveTab] = useState<StudioTab>("identity");
   const [loading, setLoading] = useState(true);
-  const [publishing, setPublishing] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [publishedBanner, setPublishedBanner] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Workspace & Profile state
-  const [workspaceId, setWorkspaceId] = useState<string>("");
-  const [bioProfileId, setBioProfileId] = useState<string>("");
-  const [handle, setHandle] = useState<string>("");
-  const [displayName, setDisplayName] = useState<string>("");
-  const [headline, setHeadline] = useState<string>("");
-  const [bioText, setBioText] = useState<string>("");
-  const [avatarUrl, setAvatarUrl] = useState<string>("");
-  const [templateId, setTemplateId] = useState<string>("atelier-editorial");
-  const [draftVersion, setDraftVersion] = useState<number>(1);
-  const [publishedVersion, setPublishedVersion] = useState<number>(0);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [entitlements, setEntitlements] =
+    useState<EvaluatedWorkspaceEntitlements | null>(null);
+  const [handle, setHandle] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [tagline, setTagline] = useState("");
+  const [bioText, setBioText] = useState("");
+  const [location, setLocation] = useState("");
+  const [templateId, setTemplateId] = useState("atelier-editorial");
+  const [showBiolioBranding, setShowBiolioBranding] = useState(true);
+  const [draftVersion, setDraftVersion] = useState(1);
+  const [publishedVersion, setPublishedVersion] = useState(0);
+  const [bioProfileId, setBioProfileId] = useState<string | null>(null);
 
-  // Child collections
-  const [links, setLinks] = useState<BioLinkItem[]>([]);
+  const [links, setLinks] = useState<
+    Array<{ id?: string; title: string; url: string; badge_text: string }>
+  >([]);
+  const [galleryItems, setGalleryItems] = useState<
+    Array<{ id?: string; title: string; media_url: string; category: string }>
+  >([]);
+  const [collaborations, setCollaborations] = useState<
+    Array<{
+      id?: string;
+      brand_name: string;
+      role_title: string;
+      summary: string;
+      case_study_url: string;
+    }>
+  >([]);
+  const [blogPosts, setBlogPosts] = useState<
+    Array<{
+      id?: string;
+      title: string;
+      slug: string;
+      excerpt: string;
+      body_markdown: string;
+      status: string;
+    }>
+  >([]);
+  interface BioInquiry {
+    id: string;
+    sender_name: string;
+    sender_email: string;
+    budget_range?: string | null;
+    message?: string | null;
+    created_at?: string;
+  }
+  const [inquiries, setInquiries] = useState<BioInquiry[]>([]);
 
-  // Load initial data
   useEffect(() => {
-    async function loadStudioData() {
-      try {
-        const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+    async function loadBioData() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
 
-        if (!user) return;
+      const { data: wsList } = await supabase
+        .from("workspaces")
+        .select("id, slug, name, intended_modules, workspace_entitlements(*)")
+        .eq("owner_id", user.id)
+        .limit(1);
 
-        // Get workspace
-        const { data: member } = await supabase
-          .from("workspace_members")
-          .select("workspace_id, workspaces(*)")
-          .eq("user_id", user.id)
-          .single();
+      interface WorkspaceDataRow {
+        id: string;
+        slug: string;
+        name: string;
+        intended_modules?: string[] | null;
+        workspace_entitlements?: Record<string, unknown> | Array<Record<string, unknown>> | null;
+      }
+      const ws = (wsList?.[0] as unknown) as WorkspaceDataRow | undefined;
+      if (!ws) {
+        setLoading(false);
+        return;
+      }
 
-        if (!member?.workspace_id) return;
+      setWorkspaceId(ws.id);
+      const rawEnt = Array.isArray(ws.workspace_entitlements)
+        ? ws.workspace_entitlements[0]
+        : ws.workspace_entitlements;
+      const evaluated = evaluateWorkspaceEntitlements(
+        rawEnt,
+        ws.intended_modules
+      );
+      setEntitlements(evaluated);
 
-        const wsId = member.workspace_id;
-        setWorkspaceId(wsId);
-
-        // Get bio profile
-        const { data: profile } = await supabase
+      const [
+        { data: profile },
+        { data: existingLinks },
+        { data: existingGallery },
+        { data: existingCollabs },
+        { data: existingPosts },
+        { data: existingInquiries },
+      ] = await Promise.all([
+        supabase
           .from("bio_profiles")
           .select("*")
-          .eq("workspace_id", wsId)
-          .single();
+          .eq("workspace_id", ws.id)
+          .maybeSingle(),
+        supabase
+          .from("bio_links")
+          .select("id, title, url, position, is_visible")
+          .eq("workspace_id", ws.id)
+          .order("position", { ascending: true }),
+        supabase
+          .from("bio_gallery_items")
+          .select("id, title, external_url, category, position")
+          .eq("workspace_id", ws.id)
+          .order("position", { ascending: true }),
+        supabase
+          .from("bio_collaborations")
+          .select("id, brand_name, campaign_title, campaign_summary, case_study_url, position")
+          .eq("workspace_id", ws.id)
+          .order("position", { ascending: true }),
+        supabase
+          .from("bio_blog_posts")
+          .select("id, title, slug, excerpt, content_markdown, status, reading_time_minutes")
+          .eq("workspace_id", ws.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("bio_contact_submissions")
+          .select("*")
+          .eq("workspace_id", ws.id)
+          .order("created_at", { ascending: false })
+          .limit(25),
+      ]);
 
-        if (profile) {
-          setBioProfileId(profile.id);
-          setHandle(profile.handle);
-          setDisplayName(profile.display_name || "");
-          setHeadline(profile.tagline || "Fashion & Editorial Director");
-          setBioText(profile.short_bio || "Sharing stories, visual essays, and curated projects.");
-          setTemplateId(profile.template_id || "atelier-editorial");
-          setDraftVersion(profile.draft_version || 1);
-          setPublishedVersion(profile.draft_version || 0);
-
-          // Load links
-          const { data: linksData } = await supabase
-            .from("bio_links")
-            .select("*")
-            .eq("bio_profile_id", profile.id)
-            .order("position", { ascending: true });
-
-          if (linksData && linksData.length > 0) {
-            setLinks(
-              linksData.map((l) => ({
-                id: l.id,
-                title: l.title,
-                url: l.url,
-                is_visible: l.is_visible,
-                is_featured: l.is_featured,
-                position: l.position,
-              }))
-            );
-          } else {
-            // Default seed links
-            setLinks([
-              {
-                title: "View Latest Editorial Collection",
-                url: "https://vogue.com",
-                is_visible: true,
-                is_featured: true,
-                position: 0,
-              },
-              {
-                title: "Listen to Podcast Interview",
-                url: "https://spotify.com",
-                is_visible: true,
-                is_featured: false,
-                position: 1,
-              },
-              {
-                title: "Book Creative Consultation",
-                url: "https://cal.com",
-                is_visible: true,
-                is_featured: false,
-                position: 2,
-              },
-            ]);
-          }
-        }
-      } catch (err) {
-        console.error("Error loading studio data", err);
-      } finally {
-        setLoading(false);
+      if (profile) {
+        setBioProfileId(profile.id);
+        setHandle(profile.handle || ws.slug);
+        setDisplayName(profile.display_name || ws.name);
+        setTagline(profile.tagline || "");
+        setBioText(profile.short_bio || profile.about_story || "");
+        setLocation(profile.location || "");
+        setTemplateId(profile.template_id || "atelier-editorial");
+        const themeConfig = (profile.theme_config as Record<string, unknown>) || {};
+        setShowBiolioBranding(Boolean(themeConfig.show_biolio_branding ?? true));
+        setDraftVersion(profile.draft_version || 1);
+        setPublishedVersion(profile.current_published_version_id ? 1 : 0);
       }
+
+      if (existingLinks && existingLinks.length > 0) {
+        setLinks(
+          existingLinks.map((l: { id: string; title: string; url: string }) => ({
+            id: l.id,
+            title: l.title,
+            url: l.url,
+            badge_text: "",
+          }))
+        );
+      } else {
+        setLinks([
+          {
+            title: "Download 2026 Creator Kit",
+            url: "https://biolio.site",
+            badge_text: "NEW",
+          },
+          {
+            title: "Book a 1:1 Brand Consultation",
+            url: "https://biolio.site/pricing",
+            badge_text: "POPULAR",
+          },
+        ]);
+      }
+
+      if (existingGallery) {
+        setGalleryItems(
+          existingGallery.map(
+            (g: {
+              id: string;
+              title?: string | null;
+              external_url?: string | null;
+              media_url?: string | null;
+              category?: string | null;
+            }) => ({
+              id: g.id,
+              title: g.title || "",
+              media_url: g.external_url || g.media_url || "",
+              category: g.category || "Portfolio",
+            })
+          )
+        );
+      }
+
+      if (existingCollabs) {
+        setCollaborations(
+          existingCollabs.map(
+            (c: {
+              id: string;
+              brand_name: string;
+              role_title?: string | null;
+              campaign_title?: string | null;
+              campaign_summary?: string | null;
+              summary?: string | null;
+              case_study_url?: string | null;
+            }) => ({
+              id: c.id,
+              brand_name: c.brand_name,
+              role_title: c.campaign_title || c.role_title || "",
+              summary: c.campaign_summary || c.summary || "",
+              case_study_url: c.case_study_url || "",
+            })
+          )
+        );
+      }
+
+      if (existingPosts) {
+        setBlogPosts(
+          existingPosts.map(
+            (b: {
+              id: string;
+              title: string;
+              slug: string;
+              excerpt?: string | null;
+              content_markdown?: string | null;
+              body_markdown?: string | null;
+              status?: string | null;
+            }) => ({
+              id: b.id,
+              title: b.title,
+              slug: b.slug,
+              excerpt: b.excerpt || "",
+              body_markdown: b.content_markdown || b.body_markdown || "",
+              status: b.status || "published",
+            })
+          )
+        );
+      }
+
+      if (existingInquiries) {
+        setInquiries(existingInquiries);
+      }
+
+      setLoading(false);
     }
 
-    loadStudioData();
-  }, []);
+    loadBioData();
+  }, [supabase]);
 
-  // Publish draft snapshot via PostgreSQL RPC
-  const handlePublish = async () => {
+  function handleAddLink() {
+    if (
+      entitlements?.bioMaxLinks !== null &&
+      entitlements?.bioMaxLinks !== undefined &&
+      links.length >= entitlements.bioMaxLinks
+    ) {
+      setErrorMsg(
+        `Link cap reached (${entitlements.bioMaxLinks} links on your ${entitlements.bioTier.toUpperCase()} tier). Upgrade on Billing & Coupons to add more links.`
+      );
+      return;
+    }
+    setErrorMsg(null);
+    setLinks([
+      ...links,
+      { title: "New Featured Link", url: "https://", badge_text: "" },
+    ]);
+  }
+
+  function handleAddGalleryItem() {
+    if (
+      entitlements?.bioMaxGalleryItems !== null &&
+      entitlements?.bioMaxGalleryItems !== undefined &&
+      galleryItems.length >= entitlements.bioMaxGalleryItems
+    ) {
+      setErrorMsg(
+        `Gallery limit reached (${entitlements.bioMaxGalleryItems} items on your ${entitlements.bioTier.toUpperCase()} tier). Upgrade on Billing & Coupons to add up to 100 portfolio items.`
+      );
+      return;
+    }
+    setErrorMsg(null);
+    setGalleryItems([
+      ...galleryItems,
+      {
+        title: "Editorial Campaign Shot",
+        media_url:
+          "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop&q=80",
+        category: "Photography",
+      },
+    ]);
+  }
+
+  function handleAddCollaboration() {
+    setCollaborations([
+      ...collaborations,
+      {
+        brand_name: "Atelier Studios",
+        role_title: "Creative Director",
+        summary: "Directed global launch campaign with 3.4M organic impressions.",
+        case_study_url: "https://biolio.site",
+      },
+    ]);
+  }
+
+  function handleAddBlogPost() {
+    if (!entitlements?.canUseBlogPublishing) {
+      setErrorMsg(
+        "Micro-Blog publishing is locked on the Free tier. Upgrade to Bio Creator ($9/mo) or All-in-One Bundle ($19/mo) to publish long-form essays."
+      );
+      return;
+    }
+    const slug = `essay-${blogPosts.length + 1}-${Date.now().toString().slice(-4)}`;
+    setBlogPosts([
+      ...blogPosts,
+      {
+        title: "How I Built My Automated Creator Funnel",
+        slug,
+        excerpt:
+          "Behind the scenes of combining a unified Bio site with deterministic Instagram Comment-to-DM workflows.",
+        body_markdown:
+          "Every creator needs a direct destination they own and control...",
+        status: "published",
+      },
+    ]);
+  }
+
+  async function handleSaveAndPublish() {
     if (!workspaceId) return;
-    setPublishing(true);
-    setSaveStatus(null);
+    setSaving(true);
+    setPublishedBanner(false);
+    setErrorMsg(null);
 
     try {
-      const supabase = createClient();
+      let targetProfileId = bioProfileId;
+      if (!targetProfileId) {
+        const { data: pRec } = await supabase
+          .from("bio_profiles")
+          .select("id")
+          .eq("workspace_id", workspaceId)
+          .maybeSingle();
+        if (pRec?.id) {
+          targetProfileId = pRec.id;
+          setBioProfileId(targetProfileId);
+        }
+      }
 
-      // First save current profile fields to draft
-      await supabase
+      if (!targetProfileId) {
+        throw new Error("Bio profile not found for this workspace. Please refresh and try again.");
+      }
+
+      // 1. Update bio_profiles draft with exact schema columns
+      const { error: updateErr } = await supabase
         .from("bio_profiles")
         .update({
           display_name: displayName,
-          tagline: headline,
-          short_bio: bioText,
+          tagline: tagline || null,
+          short_bio: bioText ? bioText.slice(0, 160) : null,
+          about_story: bioText || null,
+          location: location || null,
           template_id: templateId,
-          draft_version: draftVersion + 1,
+          theme_config: {
+            show_biolio_branding: entitlements?.canRemoveBiolioBranding
+              ? showBiolioBranding
+              : true,
+          },
         })
-        .eq("id", bioProfileId);
+        .eq("id", targetProfileId);
 
-      // Now call atomic publish RPC
-      const { error } = await supabase.rpc("publish_bio_snapshot", {
-        p_workspace_id: workspaceId,
-        p_expected_draft_version: draftVersion,
-      });
+      if (updateErr) throw new Error(updateErr.message);
 
-      if (error) {
-        // If snapshot RPC had a version mismatch or minor notice, handle gracefully
-        console.warn("Publish RPC notice:", error.message);
+      // 2. Sync bio_links to Supabase (exact schema: bio_profile_id, workspace_id, title, url, position, is_visible)
+      await supabase.from("bio_links").delete().eq("bio_profile_id", targetProfileId);
+      if (links.length > 0) {
+        const { error: linksErr } = await supabase.from("bio_links").insert(
+          links.map((l, idx) => ({
+            bio_profile_id: targetProfileId,
+            workspace_id: workspaceId,
+            title: l.title || "Link",
+            url: l.url || "https://biolio.site",
+            position: idx,
+            is_visible: true,
+          }))
+        );
+        if (linksErr) throw new Error(`Failed to save links: ${linksErr.message}`);
       }
 
-      setDraftVersion((v) => v + 1);
-      setPublishedVersion((v) => v + 1);
-      setSaveStatus("Published successfully to biolio.site/" + handle);
+      // 3. Sync bio_gallery_items to Supabase (exact schema: bio_profile_id, workspace_id, title, category, position, external_url, status)
+      await supabase
+        .from("bio_gallery_items")
+        .delete()
+        .eq("bio_profile_id", targetProfileId);
+      if (galleryItems.length > 0) {
+        const { error: galleryErr } = await supabase.from("bio_gallery_items").insert(
+          galleryItems.map((g, idx) => ({
+            bio_profile_id: targetProfileId,
+            workspace_id: workspaceId,
+            title: g.title || "Portfolio Item",
+            category: g.category || "All work",
+            position: idx,
+            external_url: g.media_url || null,
+            status: "published" as const,
+          }))
+        );
+        if (galleryErr) throw new Error(`Failed to save gallery: ${galleryErr.message}`);
+      }
+
+      // 4. Sync bio_collaborations to Supabase (exact schema: bio_profile_id, workspace_id, brand_name, campaign_title, campaign_summary, position, case_study_url, status)
+      await supabase
+        .from("bio_collaborations")
+        .delete()
+        .eq("bio_profile_id", targetProfileId);
+      if (collaborations.length > 0) {
+        const { error: collabsErr } = await supabase.from("bio_collaborations").insert(
+          collaborations.map((c, idx) => ({
+            bio_profile_id: targetProfileId,
+            workspace_id: workspaceId,
+            brand_name: c.brand_name || "Brand Partner",
+            campaign_title: c.role_title || "Partner",
+            campaign_summary: c.summary || null,
+            case_study_url: c.case_study_url || null,
+            position: idx,
+            status: "published" as const,
+          }))
+        );
+        if (collabsErr) throw new Error(`Failed to save collaborations: ${collabsErr.message}`);
+      }
+
+      // 5. Sync bio_blog_posts if unlocked (exact schema: bio_profile_id, workspace_id, title, slug, excerpt, content_markdown, reading_time_minutes, status, published_at)
+      if (entitlements?.canUseBlogPublishing && blogPosts.length > 0) {
+        await supabase
+          .from("bio_blog_posts")
+          .delete()
+          .eq("bio_profile_id", targetProfileId);
+        const { error: postsErr } = await supabase.from("bio_blog_posts").insert(
+          blogPosts.map((b) => ({
+            bio_profile_id: targetProfileId,
+            workspace_id: workspaceId,
+            title: b.title || "Untitled Post",
+            slug:
+              b.slug ||
+              `post-${Math.random().toString(36).substring(2, 7)}`,
+            excerpt: b.excerpt || null,
+            content_markdown: b.body_markdown || "",
+            sanitized_html: b.body_markdown || "",
+            reading_time_minutes: 3,
+            status: "published" as const,
+            published_at: new Date().toISOString(),
+          }))
+        );
+        if (postsErr) throw new Error(`Failed to save blog posts: ${postsErr.message}`);
+      }
+
+      // 6. Trigger atomic publish_bio_snapshot RPC
+      const { data: pubData, error: pubError } = await supabase.rpc(
+        "publish_bio_snapshot",
+        {
+          p_workspace_id: workspaceId,
+          p_expected_draft_version: draftVersion,
+        }
+      );
+
+      if (pubError) throw new Error(pubError.message);
+
+      if (pubData) {
+        const res = pubData as {
+          ok?: boolean;
+          message?: string;
+          code?: string;
+          draft_version?: number;
+          published_version?: number;
+          version_number?: number;
+        };
+        if (!res.ok) {
+          throw new Error(res.message || res.code || "Failed to publish snapshot.");
+        }
+        if (res.draft_version) {
+          setDraftVersion(res.draft_version);
+        } else {
+          setDraftVersion((prev) => prev + 1);
+        }
+        if (res.published_version || res.version_number) {
+          setPublishedVersion(res.version_number ?? res.published_version ?? 1);
+        }
+        setPublishedBanner(true);
+      }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      setSaveStatus("Error publishing: " + message);
+      const msg = err instanceof Error ? err.message : "Failed to publish Bio snapshot.";
+      setErrorMsg(msg);
     } finally {
-      setPublishing(false);
+      setSaving(false);
     }
-  };
-
-  // Add link block
-  const handleAddLink = () => {
-    setLinks([
-      ...links,
-      {
-        title: "New Link Block",
-        url: "https://",
-        is_visible: true,
-        is_featured: false,
-        position: links.length,
-      },
-    ]);
-  };
-
-  // Remove link block
-  const handleRemoveLink = (idx: number) => {
-    setLinks(links.filter((_, i) => i !== idx));
-  };
-
-  const activeTheme = BIOLIO_TEMPLATES[templateId] || BIOLIO_TEMPLATES["atelier-editorial"];
+  }
 
   if (loading) {
     return (
-      <div className="min-h-[500px] flex items-center justify-center text-xs text-[#7c727e]">
-        <span className="h-4 w-4 rounded-full border-2 border-[#f36b3f] border-t-transparent animate-spin mr-2" />
-        Loading Studio Editor...
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-8 w-8 animate-spin text-[#f36b3f]" />
       </div>
     );
   }
 
+  // STRICT SINGLE-PRODUCT LOCK GATE:
+  // If user subscribed to Instagram Automation Standalone (`ig_creator` or `ig_pro`), lock Bio Studio!
+  if (entitlements?.isBioProductLocked) {
+    return (
+      <ProductLockPaywall
+        lockedProduct="bio"
+        currentPlanLabel={entitlements.activePlanLabel}
+        lockReason={
+          entitlements.bioLockReason ||
+          "Your workspace is subscribed to Instagram Automation Standalone. Upgrade to the All-in-One Bundle or add Biolio Bio to unlock the Bio Website Studio."
+        }
+      />
+    );
+  }
+
+  const activeTemplate =
+    BIO_TEMPLATES.find((t) => t.id === templateId) || BIO_TEMPLATES[0];
+
+  const tabs: Array<{
+    id: StudioTab;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    locked?: boolean;
+  }> = [
+    { id: "identity", label: "Identity & Bio", icon: Globe },
+    { id: "links", label: `Links (${links.length})`, icon: Sparkles },
+    { id: "gallery", label: `Gallery (${galleryItems.length})`, icon: ImageIcon },
+    {
+      id: "collaborations",
+      label: `Brands (${collaborations.length})`,
+      icon: Briefcase,
+    },
+    {
+      id: "blog",
+      label: `Blog (${blogPosts.length})`,
+      icon: BookOpen,
+      locked: !entitlements?.canUseBlogPublishing,
+    },
+    {
+      id: "inquiries",
+      label: `Inbox (${inquiries.length})`,
+      icon: Mail,
+    },
+    { id: "templates", label: "Templates", icon: Palette },
+  ];
+
   return (
-    <div className="flex flex-col h-full min-h-[calc(100vh-64px)] bg-[#f4efe7]">
-      {/* Studio Top Control Strip */}
-      <div className="border-b border-[#e5dcd1] bg-[#fffdf8] px-6 lg:px-10 py-3.5 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Globe className="h-4 w-4 text-[#f36b3f]" />
-            <h2 className="font-editorial text-lg font-bold text-[#211b29]">
-              Bio Studio
-            </h2>
+    <div className="space-y-8">
+      {/* Studio Top Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#e5dcd1] pb-6">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <h1 className="font-display text-3xl font-extrabold text-[#211b29] tracking-tight">
+              Bio Website Studio
+            </h1>
+            <span className="rounded-full bg-[#277a67]/15 px-2.5 py-0.5 text-[10px] font-extrabold uppercase text-[#1e6051]">
+              {entitlements?.bioTier.toUpperCase()} Tier
+            </span>
           </div>
-          <span className="text-[11px] text-[#7c727e]">
-            Draft v{draftVersion} &bull; Live v{publishedVersion}
-          </span>
+          <p className="text-xs text-[#7c727e]">
+            Draft v{draftVersion} &bull; Published Snapshot v{publishedVersion} &bull; Link Limit:{" "}
+            {entitlements?.bioMaxLinks === null
+              ? "Unlimited"
+              : `${links.length}/${entitlements?.bioMaxLinks ?? 5}`}
+          </p>
         </div>
 
         <div className="flex items-center gap-3">
-          {saveStatus && (
-            <div className="text-xs font-semibold text-[#277a67] flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {saveStatus}
-            </div>
+          {handle && (
+            <a
+              href={`/${handle}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-xl border border-[#e5dcd1] bg-[#fffdf8] px-4 py-2.5 text-xs font-bold text-[#211b29] hover:border-[#211b29]"
+            >
+              View Live Site
+              <ExternalLink className="h-3.5 w-3.5 text-[#f36b3f]" />
+            </a>
           )}
-
-          <Link
-            href={`/${handle}`}
-            target="_blank"
-            className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-[#e5dcd1] bg-[#f4efe7] px-3 py-1.5 text-xs font-bold text-[#211b29] hover:bg-[#fff]"
-          >
-            <Eye className="h-3.5 w-3.5" />
-            Live Preview
-          </Link>
-
           <button
-            onClick={handlePublish}
-            disabled={publishing}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#f36b3f] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#ee7048] disabled:opacity-50 transition-all"
+            onClick={handleSaveAndPublish}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-xl bg-[#f36b3f] px-5 py-2.5 text-xs font-bold text-white shadow-md hover:bg-[#e0562b] disabled:opacity-50"
           >
-            {publishing ? (
-              "Publishing..."
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <>
-                <Save className="h-3.5 w-3.5" />
-                Publish Snapshot
-              </>
+              <Sparkles className="h-4 w-4" />
             )}
+            Publish Snapshot
           </button>
         </div>
       </div>
 
-      {/* Main Studio Body: Left Editor Panels & Right Mockup Phone */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0">
-        {/* Left Column: Editor Tabs & Config Panels */}
-        <div className="lg:col-span-7 border-r border-[#e5dcd1] bg-[#fffdf8] flex flex-col min-h-0 overflow-y-auto">
-          {/* Sub Navigation Tabs */}
-          <div className="border-b border-[#eee6dc] px-6 py-2.5 flex items-center gap-1 overflow-x-auto shrink-0 bg-[#fbf8f2]">
-            <button
-              onClick={() => setActiveTab("profile")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "profile"
-                  ? "bg-[#211b29] text-white shadow-xs"
-                  : "text-[#7c727e] hover:text-[#211b29]"
-              }`}
-            >
-              Profile
-            </button>
-            <button
-              onClick={() => setActiveTab("links")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "links"
-                  ? "bg-[#211b29] text-white shadow-xs"
-                  : "text-[#7c727e] hover:text-[#211b29]"
-              }`}
-            >
-              Links ({links.length})
-            </button>
-            <button
-              onClick={() => setActiveTab("theme")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "theme"
-                  ? "bg-[#211b29] text-white shadow-xs"
-                  : "text-[#7c727e] hover:text-[#211b29]"
-              }`}
-            >
-              Themes & Aesthetic
-            </button>
-            <button
-              onClick={() => setActiveTab("gallery")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "gallery"
-                  ? "bg-[#211b29] text-white shadow-xs"
-                  : "text-[#7c727e] hover:text-[#211b29]"
-              }`}
-            >
-              Gallery
-            </button>
-            <button
-              onClick={() => setActiveTab("blog")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "blog"
-                  ? "bg-[#211b29] text-white shadow-xs"
-                  : "text-[#7c727e] hover:text-[#211b29]"
-              }`}
-            >
-              Micro-Blog
-            </button>
+      {publishedBanner && (
+        <div className="rounded-2xl border border-[#277a67]/30 bg-[#e3f5ef] p-4 text-xs font-bold text-[#1d5e4f] flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4" />
+          Published immutable snapshot v{publishedVersion} to biolio.site/{handle}
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="rounded-2xl border border-[#f5c2c7] bg-[#f8d7da] p-4 text-xs font-bold text-[#842029]">
+          {errorMsg}
+        </div>
+      )}
+
+      {entitlements?.bioTier === "free" && (
+        <FeatureTierBanner
+          title="Free Starter Bio Limits Active (Max 5 Links • 3 Gallery Items • Blog Locked)"
+          description="Upgrade to Biolio Bio Creator ($9/mo) or the All-in-One Bundle ($19/mo) to unlock 25+ links, 24 gallery items, custom themes, and Micro-Blog publishing."
+          requiredTier="Bio Creator or Bundle"
+        />
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Left 7 Cols: Studio Editor */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* Sub-navigation Tabs */}
+          <div className="flex flex-wrap gap-2 rounded-2xl border border-[#e5dcd1] bg-[#fffdf8] p-2">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-colors ${
+                    isActive
+                      ? "bg-[#211b29] text-white shadow-sm"
+                      : "text-[#7c727e] hover:text-[#211b29]"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {tab.label}
+                  {tab.locked && <Lock className="h-3 w-3 text-[#f36b3f]" />}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Panel Content */}
-          <div className="p-6 lg:p-8 space-y-6 flex-1">
-            {/* TAB: PROFILE */}
-            {activeTab === "profile" && (
-              <div className="space-y-5 max-w-lg">
+          {/* Tab Content */}
+          <div className="rounded-3xl border border-[#e5dcd1] bg-[#fffdf8] p-6 md:p-8 shadow-sm">
+            {activeTab === "identity" && (
+              <div className="space-y-4">
+                <h3 className="font-display text-lg font-bold text-[#211b29] mb-2">
+                  Creator Identity &amp; Hero
+                </h3>
                 <div>
-                  <label className="block text-xs font-bold text-[#211b29] mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#4b4351] mb-1.5">
                     Display Name
                   </label>
                   <input
                     type="text"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Elena Vance"
-                    className="w-full rounded-lg border border-[#e5dcd1] bg-[#f4efe7] px-3.5 py-2.5 text-xs text-[#211b29] focus:outline-none focus:border-[#f36b3f]"
+                    className="w-full rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] px-4 py-3 text-sm text-[#211b29]"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-bold text-[#211b29] mb-1.5">
-                    Headline
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#4b4351] mb-1.5">
+                    Headline / Tagline
                   </label>
                   <input
                     type="text"
-                    value={headline}
-                    onChange={(e) => setHeadline(e.target.value)}
-                    placeholder="Fashion & Editorial Director"
-                    className="w-full rounded-lg border border-[#e5dcd1] bg-[#f4efe7] px-3.5 py-2.5 text-xs text-[#211b29] focus:outline-none focus:border-[#f36b3f]"
+                    value={tagline}
+                    onChange={(e) => setTagline(e.target.value)}
+                    placeholder="Multidisciplinary Designer & Filmmaker"
+                    className="w-full rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] px-4 py-3 text-sm text-[#211b29]"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-bold text-[#211b29] mb-1.5">
-                    Bio Description
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#4b4351] mb-1.5">
+                    Bio Story
                   </label>
                   <textarea
-                    rows={3}
+                    rows={4}
                     value={bioText}
                     onChange={(e) => setBioText(e.target.value)}
-                    placeholder="Sharing stories, visual essays, and curated projects across Paris and Milan."
-                    className="w-full rounded-lg border border-[#e5dcd1] bg-[#f4efe7] px-3.5 py-2.5 text-xs text-[#211b29] focus:outline-none focus:border-[#f36b3f]"
+                    placeholder="Share what you create, who you help, and what visitors should explore below..."
+                    className="w-full rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] px-4 py-3 text-sm text-[#211b29]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#4b4351] mb-1.5">
+                    Location
+                  </label>
+                  <input
+                    type="text"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="New York / Tokyo"
+                    className="w-full rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] px-4 py-3 text-sm text-[#211b29]"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-[#211b29] mb-1.5">
-                    Avatar Image URL
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="url"
-                      value={avatarUrl}
-                      onChange={(e) => setAvatarUrl(e.target.value)}
-                      placeholder="https://images.unsplash.com/..."
-                      className="flex-1 rounded-lg border border-[#e5dcd1] bg-[#f4efe7] px-3.5 py-2.5 text-xs text-[#211b29] focus:outline-none focus:border-[#f36b3f]"
-                    />
+                {/* Pro Feature Lock: Remove Biolio Branding */}
+                <div className="pt-2">
+                  <div className="rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] p-3.5 flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-bold text-[#211b29]">
+                        Display &ldquo;Powered by Biolio&rdquo; Footer Badge
+                      </div>
+                      <div className="text-[11px] text-[#7c727e]">
+                        White-label branding removal requires Bio Pro or Bundle Pro.
+                      </div>
+                    </div>
+                    {entitlements?.canRemoveBiolioBranding ? (
+                      <input
+                        type="checkbox"
+                        checked={showBiolioBranding}
+                        onChange={(e) =>
+                          setShowBiolioBranding(e.target.checked)
+                        }
+                        className="h-4 w-4 rounded border-[#e5dcd1] text-[#f36b3f]"
+                      />
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded bg-[#211b29] px-2.5 py-1 text-[10px] font-bold text-white">
+                        <Lock className="h-3 w-3 text-[#f36b3f]" /> Pro Only
+                      </span>
+                    )}
                   </div>
-                  <p className="mt-1.5 text-[11px] text-[#7c727e]">
-                    Paste an image URL or connect Cloudinary credentials in .env.local for automatic signed uploads.
-                  </p>
                 </div>
               </div>
             )}
 
-            {/* TAB: LINKS */}
             {activeTab === "links" && (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="font-editorial text-lg font-bold text-[#211b29]">
-                      Link Blocks
+                    <h3 className="font-display text-lg font-bold text-[#211b29]">
+                      Smart Links &amp; CTAs
                     </h3>
-                    <p className="text-xs text-[#7c727e]">
-                      Add, arrange, and manage your bio links.
+                    <p className="text-[11px] text-[#7c727e]">
+                      Using {links.length} of{" "}
+                      {entitlements?.bioMaxLinks === null
+                        ? "Unlimited"
+                        : entitlements?.bioMaxLinks ?? 5}{" "}
+                      allowed links on your plan.
                     </p>
                   </div>
                   <button
+                    type="button"
                     onClick={handleAddLink}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-[#211b29] px-3.5 py-2 text-xs font-bold text-white hover:bg-[#3a3040] transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#211b29] px-3.5 py-2 text-xs font-bold text-white"
                   >
-                    <Plus className="h-3.5 w-3.5" />
+                    <Plus className="h-3.5 w-3.5 text-[#f36b3f]" />
                     Add Link
                   </button>
                 </div>
@@ -413,9 +788,9 @@ export default function BioStudioPage() {
                   {links.map((link, idx) => (
                     <div
                       key={idx}
-                      className="rounded-xl border border-[#e5dcd1] bg-[#f4efe7] p-4 flex items-start gap-4 shadow-xs"
+                      className="rounded-2xl border border-[#e5dcd1] bg-[#fbf8f2] p-4 space-y-3"
                     >
-                      <div className="flex-1 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
                         <input
                           type="text"
                           value={link.title}
@@ -425,261 +800,443 @@ export default function BioStudioPage() {
                             setLinks(updated);
                           }}
                           placeholder="Link Title"
-                          className="w-full rounded-md border border-[#e5dcd1] bg-[#fffdf8] px-3 py-1.5 text-xs font-bold text-[#211b29] focus:outline-none"
+                          className="flex-1 rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs font-bold text-[#211b29]"
                         />
                         <input
-                          type="url"
-                          value={link.url}
+                          type="text"
+                          value={link.badge_text}
                           onChange={(e) => {
                             const updated = [...links];
-                            updated[idx].url = e.target.value;
+                            updated[idx].badge_text = e.target.value;
                             setLinks(updated);
                           }}
-                          placeholder="https://destination.com"
-                          className="w-full rounded-md border border-[#e5dcd1] bg-[#fffdf8] px-3 py-1.5 text-xs text-[#211b29] focus:outline-none"
+                          placeholder="Badge (e.g. NEW)"
+                          className="w-28 rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs text-[#211b29]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLinks(links.filter((_, i) => i !== idx))
+                          }
+                          className="p-2 text-[#a62639] hover:bg-[#fde8eb] rounded-lg"
+                          aria-label="Remove link"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <input
+                        type="url"
+                        value={link.url}
+                        onChange={(e) => {
+                          const updated = [...links];
+                          updated[idx].url = e.target.value;
+                          setLinks(updated);
+                        }}
+                        placeholder="https://..."
+                        className="w-full rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs text-[#7c727e]"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeTab === "gallery" && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-display text-lg font-bold text-[#211b29]">
+                      Visual Portfolio Gallery
+                    </h3>
+                    <p className="text-[11px] text-[#7c727e]">
+                      Using {galleryItems.length} of{" "}
+                      {entitlements?.bioMaxGalleryItems === null
+                        ? "Unlimited"
+                        : entitlements?.bioMaxGalleryItems ?? 3}{" "}
+                      allowed items.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddGalleryItem}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#211b29] px-3.5 py-2 text-xs font-bold text-white"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-[#f36b3f]" />
+                    Add Portfolio Item
+                  </button>
+                </div>
+
+                {galleryItems.length === 0 ? (
+                  <p className="text-xs text-[#7c727e] py-6 text-center">
+                    No gallery items added yet. Click &ldquo;Add Portfolio Item&rdquo; to showcase your work.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {galleryItems.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="rounded-2xl border border-[#e5dcd1] bg-[#fbf8f2] p-4 space-y-2.5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={item.title}
+                            onChange={(e) => {
+                              const next = [...galleryItems];
+                              next[idx].title = e.target.value;
+                              setGalleryItems(next);
+                            }}
+                            placeholder="Project Title"
+                            className="flex-1 rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs font-bold text-[#211b29]"
+                          />
+                          <input
+                            type="text"
+                            value={item.category}
+                            onChange={(e) => {
+                              const next = [...galleryItems];
+                              next[idx].category = e.target.value;
+                              setGalleryItems(next);
+                            }}
+                            placeholder="Category"
+                            className="w-32 rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs text-[#211b29]"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setGalleryItems(
+                                galleryItems.filter((_, i) => i !== idx)
+                              )
+                            }
+                            className="p-2 text-[#a62639] hover:bg-[#fde8eb] rounded-lg"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <input
+                          type="url"
+                          value={item.media_url}
+                          onChange={(e) => {
+                            const next = [...galleryItems];
+                            next[idx].media_url = e.target.value;
+                            setGalleryItems(next);
+                          }}
+                          placeholder="https://res.cloudinary.com/... or image URL"
+                          className="w-full rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs text-[#7c727e]"
                         />
                       </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
+            {activeTab === "collaborations" && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-display text-lg font-bold text-[#211b29]">
+                      Brand Collaborations &amp; Case Studies
+                    </h3>
+                    <p className="text-[11px] text-[#7c727e]">
+                      Highlight past brand partnerships and campaign results.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddCollaboration}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#211b29] px-3.5 py-2 text-xs font-bold text-white"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-[#f36b3f]" />
+                    Add Brand Partner
+                  </button>
+                </div>
+
+                {collaborations.map((c, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-2xl border border-[#e5dcd1] bg-[#fbf8f2] p-4 space-y-2.5"
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={c.brand_name}
+                        onChange={(e) => {
+                          const next = [...collaborations];
+                          next[idx].brand_name = e.target.value;
+                          setCollaborations(next);
+                        }}
+                        placeholder="Brand Name"
+                        className="flex-1 rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs font-bold text-[#211b29]"
+                      />
+                      <input
+                        type="text"
+                        value={c.role_title}
+                        onChange={(e) => {
+                          const next = [...collaborations];
+                          next[idx].role_title = e.target.value;
+                          setCollaborations(next);
+                        }}
+                        placeholder="Role (e.g. Creator Partner)"
+                        className="w-44 rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs text-[#211b29]"
+                      />
                       <button
-                        onClick={() => handleRemoveLink(idx)}
-                        className="p-2 text-[#c45a3a] hover:bg-[#fce8df] rounded-lg transition-colors"
-                        title="Delete link"
+                        type="button"
+                        onClick={() =>
+                          setCollaborations(
+                            collaborations.filter((_, i) => i !== idx)
+                          )
+                        }
+                        className="p-2 text-[#a62639] hover:bg-[#fde8eb] rounded-lg"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* TAB: THEMES & AESTHETIC */}
-            {activeTab === "theme" && (
-              <div className="space-y-6">
-                <div>
-                  <h3 className="font-editorial text-lg font-bold text-[#211b29]">
-                    Select Seed Template
-                  </h3>
-                  <p className="text-xs text-[#7c727e]">
-                    Instantly changes the palette, card radii, and typography in the live preview.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {Object.values(BIOLIO_TEMPLATES).map((template) => (
-                    <div
-                      key={template.id}
-                      onClick={() => setTemplateId(template.id)}
-                      className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                        templateId === template.id
-                          ? "border-[#f36b3f] ring-2 ring-[#f36b3f]/20 bg-[#fffdf8] shadow-md"
-                          : "border-[#e5dcd1] bg-[#f4efe7] hover:bg-[#fffdf8]"
-                      }`}
-                    >
-                      <div
-                        className="h-16 rounded-lg mb-3 flex items-center justify-center font-bold text-sm"
-                        style={{
-                          backgroundColor: template.theme.bg,
-                          color: template.theme.text,
-                          border: `1px solid ${template.theme.border}`,
-                          fontFamily: template.theme.fontHeading,
-                        }}
-                      >
-                        {template.name}
-                      </div>
-                      <div className="text-xs font-bold text-[#211b29]">
-                        {template.name}
-                      </div>
-                      <div className="text-[10px] text-[#7c727e]">
-                        {template.category}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* TAB: GALLERY */}
-            {activeTab === "gallery" && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="font-editorial text-lg font-bold text-[#211b29]">
-                    Media Lookbook Gallery
-                  </h3>
-                  <p className="text-xs text-[#7c727e]">
-                    Add high-resolution visuals to showcase your editorial lookbooks and artwork.
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-dashed border-[#e5dcd1] bg-[#f4efe7] p-8 text-center">
-                  <Camera className="h-8 w-8 text-[#7c727e] mx-auto mb-2" />
-                  <div className="text-xs font-bold text-[#211b29]">
-                    Upload Portfolio Photos
+                    <input
+                      type="text"
+                      value={c.summary}
+                      onChange={(e) => {
+                        const next = [...collaborations];
+                        next[idx].summary = e.target.value;
+                        setCollaborations(next);
+                      }}
+                      placeholder="Short outcome summary..."
+                      className="w-full rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs text-[#5d5360]"
+                    />
                   </div>
-                  <div className="text-[11px] text-[#7c727e] mt-1">
-                    Powered by Cloudinary signed auto-webp CDN pipelines.
-                  </div>
-                </div>
+                ))}
               </div>
             )}
 
-            {/* TAB: BLOG */}
             {activeTab === "blog" && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="font-editorial text-lg font-bold text-[#211b29]">
-                    Micro-Blogging Engine
-                  </h3>
-                  <p className="text-xs text-[#7c727e]">
-                    Publish editorial essays directly at <code className="text-[#211b29] font-mono">/[handle]/blog/[slug]</code>.
-                  </p>
-                </div>
+              <div className="space-y-4">
+                {!entitlements?.canUseBlogPublishing ? (
+                  <FeatureTierBanner
+                    title="Micro-Blog Publishing is Locked on Starter Free"
+                    description="Upgrade to Biolio Bio Creator ($9/mo) or the All-in-One Bundle ($19/mo) to publish native SEO articles at biolio.site/your-handle/blog/post-slug."
+                    requiredTier="Bio Creator / Pro"
+                  />
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-display text-lg font-bold text-[#211b29]">
+                        Micro-Blog Posts
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={handleAddBlogPost}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-[#211b29] px-3.5 py-2 text-xs font-bold text-white"
+                      >
+                        <Plus className="h-3.5 w-3.5 text-[#f36b3f]" />
+                        New Article
+                      </button>
+                    </div>
 
-                <div className="rounded-xl border border-[#e5dcd1] bg-[#f4efe7] p-5">
-                  <div className="text-xs font-bold text-[#211b29] mb-1">
-                    Sample Essay: &quot;On Light and Proportion&quot;
+                    {blogPosts.map((post, idx) => (
+                      <div
+                        key={idx}
+                        className="rounded-2xl border border-[#e5dcd1] bg-[#fbf8f2] p-4 space-y-2.5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={post.title}
+                            onChange={(e) => {
+                              const next = [...blogPosts];
+                              next[idx].title = e.target.value;
+                              setBlogPosts(next);
+                            }}
+                            placeholder="Article Headline"
+                            className="flex-1 rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs font-bold text-[#211b29]"
+                          />
+                          <input
+                            type="text"
+                            value={post.slug}
+                            onChange={(e) => {
+                              const next = [...blogPosts];
+                              next[idx].slug = e.target.value
+                                .toLowerCase()
+                                .replace(/[^a-z0-9-]/g, "-");
+                              setBlogPosts(next);
+                            }}
+                            placeholder="url-slug"
+                            className="w-36 rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs font-mono text-[#7c727e]"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBlogPosts(
+                                blogPosts.filter((_, i) => i !== idx)
+                              )
+                            }
+                            className="p-2 text-[#a62639] hover:bg-[#fde8eb] rounded-lg"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <textarea
+                          rows={3}
+                          value={post.body_markdown}
+                          onChange={(e) => {
+                            const next = [...blogPosts];
+                            next[idx].body_markdown = e.target.value;
+                            next[idx].excerpt = e.target.value.slice(0, 140);
+                            setBlogPosts(next);
+                          }}
+                          placeholder="Write your essay in Markdown..."
+                          className="w-full rounded-lg border border-[#e5dcd1] bg-white px-3 py-2 text-xs text-[#211b29]"
+                        />
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+
+            {activeTab === "inquiries" && (
+              <div className="space-y-4">
+                <h3 className="font-display text-lg font-bold text-[#211b29]">
+                  Visitor Contact &amp; Booking Inquiries ({inquiries.length})
+                </h3>
+                {inquiries.length === 0 ? (
+                  <p className="text-xs text-[#7c727e]">
+                    No visitor inquiries submitted yet. Visitors on{" "}
+                    <code className="font-mono">biolio.site/{handle}</code> can send you direct brand &amp; booking requests.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {inquiries.map((inq) => (
+                      <div
+                        key={inq.id}
+                        className="rounded-2xl border border-[#e5dcd1] bg-[#fbf8f2] p-4 text-xs space-y-1"
+                      >
+                        <div className="flex items-center justify-between font-bold text-[#211b29]">
+                          <span>
+                            {inq.sender_name} ({inq.sender_email})
+                          </span>
+                          {inq.budget_range && (
+                            <span className="rounded bg-[#277a67]/15 px-2 py-0.5 text-[10px] text-[#1e6051]">
+                              {inq.budget_range}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[#5d5360]">{inq.message}</p>
+                      </div>
+                    ))}
                   </div>
-                  <div className="text-[11px] text-[#7c727e] mb-3">
-                    Published &bull; 4 min read &bull; /blog/on-light-and-proportion
-                  </div>
-                  <Link
-                    href={`/${handle}/blog/on-light-and-proportion`}
-                    target="_blank"
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-[#f36b3f] hover:underline"
-                  >
-                    Read article preview <ExternalLink className="h-3 w-3" />
-                  </Link>
+                )}
+              </div>
+            )}
+
+            {activeTab === "templates" && (
+              <div className="space-y-4">
+                <h3 className="font-display text-lg font-bold text-[#211b29] mb-2">
+                  Switch Bio Template
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {BIO_TEMPLATES.map((tpl) => {
+                    const lockedTemplate =
+                      tpl.minTier !== "free" &&
+                      !entitlements?.canUseCustomThemes;
+
+                    return (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        disabled={lockedTemplate}
+                        onClick={() => setTemplateId(tpl.id)}
+                        className={`rounded-2xl border-2 p-4 text-left transition-all ${
+                          templateId === tpl.id
+                            ? "border-[#f36b3f] bg-[#fff5f0]"
+                            : "border-[#e5dcd1] bg-[#fbf8f2]"
+                        } ${lockedTemplate ? "opacity-60 cursor-not-allowed" : ""}`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-display font-bold text-sm text-[#211b29]">
+                            {tpl.name}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[#e5dcd1] text-[#211b29]">
+                            {lockedTemplate && <Lock className="h-2.5 w-2.5" />}
+                            {tpl.minTier}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#7c727e]">
+                          {tpl.description}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Right Column: Interactive Phone Mockup Preview */}
-        <div className="lg:col-span-5 bg-[#f4efe7] p-6 lg:p-12 flex flex-col items-center justify-center sticky top-16 h-[calc(100vh-64px)] overflow-y-auto">
-          {/* The Phone Device Frame */}
-          <div
-            className="w-[300px] sm:w-[330px] rounded-[36px] border-[7px] border-[#211b29] p-4 shadow-2xl relative transition-all duration-300"
-            style={{
-              backgroundColor: activeTheme.theme.bg,
-              color: activeTheme.theme.text,
-            }}
-          >
-            {/* Notch */}
-            <div className="mx-auto h-4 w-28 rounded-b-xl bg-[#211b29] mb-4" />
-
-            {/* Profile Section */}
-            <div className="text-center pb-4 border-b" style={{ borderColor: activeTheme.theme.border }}>
-              <div
-                className="mx-auto h-20 w-20 flex items-center justify-center text-xl font-bold shadow-md mb-3"
-                style={{
-                  borderRadius: activeTheme.theme.avatarRadius,
-                  backgroundColor: activeTheme.theme.cardBg,
-                  color: activeTheme.theme.text,
-                  border: `2px solid ${activeTheme.theme.border}`,
-                  fontFamily: activeTheme.theme.fontHeading,
-                }}
-              >
-                {displayName.charAt(0) || "B"}
-              </div>
-
-              <h3
-                className="text-xl font-bold"
-                style={{ fontFamily: activeTheme.theme.fontHeading }}
-              >
-                {displayName || "Elena Vance"}
-              </h3>
-
-              <p
-                className="text-xs mt-1 font-medium"
-                style={{
-                  color: activeTheme.theme.mutedText,
-                  fontFamily: activeTheme.theme.fontBody,
-                }}
-              >
-                {headline || "Fashion & Editorial Director"}
-              </p>
-
-              <p
-                className="text-[11px] mt-2 px-2 leading-relaxed"
-                style={{
-                  color: activeTheme.theme.mutedText,
-                  fontFamily: activeTheme.theme.fontBody,
-                }}
-              >
-                {bioText}
-              </p>
-            </div>
-
-            {/* Links List in Mockup */}
-            <div className="py-4 space-y-2.5">
-              {links.filter((l) => l.is_visible).map((link, idx) => (
-                <a
-                  key={idx}
-                  href={link.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between p-3 transition-transform hover:scale-[1.02] shadow-xs"
-                  style={{
-                    backgroundColor: link.is_featured
-                      ? activeTheme.theme.buttonBg
-                      : activeTheme.theme.cardBg,
-                    color: link.is_featured
-                      ? activeTheme.theme.buttonText
-                      : activeTheme.theme.text,
-                    borderRadius: activeTheme.theme.cardRadius,
-                    border: `1px solid ${activeTheme.theme.border}`,
-                    fontFamily: activeTheme.theme.fontBody,
-                  }}
-                >
-                  <span className="text-xs font-bold truncate">
-                    {link.title}
-                  </span>
-                  <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
-                </a>
-              ))}
-            </div>
-
-            {/* Mini Lookbook Sample */}
-            <div className="pt-2 grid grid-cols-3 gap-1.5">
-              <div
-                className="h-14 rounded flex items-center justify-center text-[9px] font-bold"
-                style={{
-                  backgroundColor: activeTheme.theme.cardBg,
-                  border: `1px solid ${activeTheme.theme.border}`,
-                  color: activeTheme.theme.mutedText,
-                }}
-              >
-                Look 01
-              </div>
-              <div
-                className="h-14 rounded flex items-center justify-center text-[9px] font-bold"
-                style={{
-                  backgroundColor: activeTheme.theme.cardBg,
-                  border: `1px solid ${activeTheme.theme.border}`,
-                  color: activeTheme.theme.mutedText,
-                }}
-              >
-                Look 02
-              </div>
-              <div
-                className="h-14 rounded flex items-center justify-center text-[9px] font-bold"
-                style={{
-                  backgroundColor: activeTheme.theme.cardBg,
-                  border: `1px solid ${activeTheme.theme.border}`,
-                  color: activeTheme.theme.mutedText,
-                }}
-              >
-                Look 03
-              </div>
-            </div>
-
-            {/* Watermark in Mockup */}
+        {/* Right 5 Cols: Live Mobile Preview Frame */}
+        <div className="lg:col-span-5 flex justify-center">
+          <div className="w-full max-w-[360px] rounded-[42px] border-[10px] border-[#211b29] bg-[#16121c] p-2 shadow-2xl">
             <div
-              className="mt-6 text-center text-[9px] font-bold uppercase tracking-wider"
-              style={{ color: activeTheme.theme.mutedText }}
+              className="rounded-[32px] min-h-[600px] p-6 flex flex-col justify-between transition-colors duration-300"
+              style={{
+                backgroundColor: activeTemplate.tokens.bg,
+                color: activeTemplate.tokens.ink,
+              }}
             >
-              biolio.site/{handle}
+              <div>
+                <div className="text-center mb-6 pt-4">
+                  <div
+                    className="mx-auto mb-3 h-20 w-20 rounded-full flex items-center justify-center font-display text-2xl font-extrabold shadow-md"
+                    style={{
+                      backgroundColor: activeTemplate.tokens.accent,
+                      color: "#ffffff",
+                    }}
+                  >
+                    {(displayName || handle || "B").charAt(0).toUpperCase()}
+                  </div>
+                  <h2 className="font-display text-xl font-extrabold tracking-tight">
+                    {displayName || handle || "Your Name"}
+                  </h2>
+                  <p className="text-xs opacity-75 mt-1">
+                    {tagline || "Creator & Founder"}
+                  </p>
+                  {bioText && (
+                    <p className="text-xs opacity-80 mt-3 leading-relaxed">
+                      {bioText}
+                    </p>
+                  )}
+                </div>
+
+                {/* Live Links Preview */}
+                <div className="space-y-2.5">
+                  {links.map((link, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-2xl px-4 py-3.5 text-xs font-bold flex items-center justify-between shadow-sm border border-black/10"
+                      style={{
+                        backgroundColor: activeTemplate.tokens.surface,
+                        color: activeTemplate.tokens.ink,
+                      }}
+                    >
+                      <span className="truncate">{link.title}</span>
+                      {link.badge_text && (
+                        <span
+                          className="rounded-full px-2 py-0.5 text-[9px] font-extrabold text-white shrink-0"
+                          style={{
+                            backgroundColor: activeTemplate.tokens.accent,
+                          }}
+                        >
+                          {link.badge_text}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {showBiolioBranding && (
+                <div className="pt-8 text-center text-[10px] font-bold uppercase tracking-widest opacity-50">
+                  Biolio.site/{handle}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -687,4 +1244,3 @@ export default function BioStudioPage() {
     </div>
   );
 }
-

@@ -38,6 +38,16 @@ export interface BiolioTemplateConfig {
   name: string;
   description: string;
   category: string;
+  minTier: "free" | "creator" | "pro";
+  tokens: {
+    bg: string;
+    surface: string;
+    ink: string;
+    accent: string;
+    fontDisplay: string;
+    fontBody: string;
+    buttonStyle: string;
+  };
   theme: {
     bg: string;
     cardBg: string;
@@ -54,12 +64,22 @@ export interface BiolioTemplateConfig {
   };
 }
 
-export const BIOLIO_TEMPLATES: Record<string, BiolioTemplateConfig> = {
-  "atelier-editorial": {
+export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
+  {
     id: "atelier-editorial",
     name: "Atelier Editorial",
     description: "Refined editorial layout with Playfair Display and warm linen tones.",
     category: "Writers & High Fashion",
+    minTier: "free",
+    tokens: {
+      bg: "#f4efe7",
+      surface: "#fffdf8",
+      ink: "#211b29",
+      accent: "#f36b3f",
+      fontDisplay: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "solid-pill",
+    },
     theme: {
       bg: "#f4efe7",
       cardBg: "#fffdf8",
@@ -75,11 +95,21 @@ export const BIOLIO_TEMPLATES: Record<string, BiolioTemplateConfig> = {
       cardRadius: "8px",
     },
   },
-  "obsidian-noir": {
+  {
     id: "obsidian-noir",
     name: "Obsidian Noir",
     description: "Dark luxury aesthetic with deep inks, lilac glow, and high-contrast typography.",
     category: "Creators & Tech Founders",
+    minTier: "free",
+    tokens: {
+      bg: "#16131b",
+      surface: "#211b29",
+      ink: "#fdfcfe",
+      accent: "#c9b5f4",
+      fontDisplay: "'Manrope', sans-serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "outline-glow",
+    },
     theme: {
       bg: "#16131b",
       cardBg: "#211b29",
@@ -95,11 +125,21 @@ export const BIOLIO_TEMPLATES: Record<string, BiolioTemplateConfig> = {
       cardRadius: "12px",
     },
   },
-  "sage-botanical": {
+  {
     id: "sage-botanical",
     name: "Sage Botanical",
     description: "Earthy organic tones with calming forest hues and delicate serif accents.",
     category: "Wellness & Skincare",
+    minTier: "free",
+    tokens: {
+      bg: "#f2f5f3",
+      surface: "#ffffff",
+      ink: "#1c2e27",
+      accent: "#277a67",
+      fontDisplay: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "soft-rounded",
+    },
     theme: {
       bg: "#f2f5f3",
       cardBg: "#ffffff",
@@ -115,11 +155,21 @@ export const BIOLIO_TEMPLATES: Record<string, BiolioTemplateConfig> = {
       cardRadius: "16px",
     },
   },
-  "studio-minimal": {
+  {
     id: "studio-minimal",
     name: "Studio Minimal",
     description: "Swiss architectural minimalism with crisp lines and vivid tangerine pops.",
     category: "Photographers & Designers",
+    minTier: "free",
+    tokens: {
+      bg: "#ffffff",
+      surface: "#f8f9fa",
+      ink: "#111111",
+      accent: "#f36b3f",
+      fontDisplay: "'Manrope', sans-serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "sharp-grid",
+    },
     theme: {
       bg: "#ffffff",
       cardBg: "#f8f9fa",
@@ -135,11 +185,21 @@ export const BIOLIO_TEMPLATES: Record<string, BiolioTemplateConfig> = {
       cardRadius: "4px",
     },
   },
-  "sunset-amber": {
+  {
     id: "sunset-amber",
     name: "Sunset Amber",
     description: "Rich terracotta warmth, glowing peach accents, and warm sun-drenched feel.",
     category: "Culinary & Lifestyle",
+    minTier: "creator",
+    tokens: {
+      bg: "#fcf5ee",
+      surface: "#ffffff",
+      ink: "#331f18",
+      accent: "#e0633b",
+      fontDisplay: "'Playfair Display', serif",
+      fontBody: "'Manrope', sans-serif",
+      buttonStyle: "shadow-pop",
+    },
     theme: {
       bg: "#fcf5ee",
       cardBg: "#ffffff",
@@ -155,11 +215,21 @@ export const BIOLIO_TEMPLATES: Record<string, BiolioTemplateConfig> = {
       cardRadius: "16px",
     },
   },
-  "tokyo-cyber": {
+  {
     id: "tokyo-cyber",
     name: "Tokyo Cyber",
     description: "Vibrant neon violet on dark obsidian for stream setups and music artists.",
     category: "Music & Gaming",
+    minTier: "creator",
+    tokens: {
+      bg: "#0d0b12",
+      surface: "#1a1622",
+      ink: "#ffffff",
+      accent: "#9d65ff",
+      fontDisplay: "'Manrope', sans-serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "neon-glow",
+    },
     theme: {
       bg: "#0d0b12",
       cardBg: "#1a1622",
@@ -175,5 +245,188 @@ export const BIOLIO_TEMPLATES: Record<string, BiolioTemplateConfig> = {
       cardRadius: "14px",
     },
   },
-};
+  {
+    id: "monochrome-stark",
+    name: "Monochrome Stark",
+    description: "Pure black and stark white brutalist grid for architectural statements.",
+    category: "Architects & Engineers",
+    minTier: "free",
+    tokens: {
+      bg: "#0a0a0a",
+      surface: "#141414",
+      ink: "#f5f5f5",
+      accent: "#ffffff",
+      fontDisplay: "'Manrope', sans-serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "sharp-mono",
+    },
+    theme: {
+      bg: "#0a0a0a",
+      cardBg: "#141414",
+      text: "#f5f5f5",
+      mutedText: "#888888",
+      accent: "#ffffff",
+      buttonBg: "#ffffff",
+      buttonText: "#0a0a0a",
+      border: "#262626",
+      fontHeading: "'Manrope', sans-serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "0px",
+      cardRadius: "0px",
+    },
+  },
+  {
+    id: "terracotta-warmth",
+    name: "Terracotta Warmth",
+    description: "Rich earthenware pottery tones with toasted almond paper background.",
+    category: "Ceramics & Artisans",
+    minTier: "creator",
+    tokens: {
+      bg: "#f7f1eb",
+      surface: "#fffaf5",
+      ink: "#3c2921",
+      accent: "#c45c3d",
+      fontDisplay: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "soft-pill",
+    },
+    theme: {
+      bg: "#f7f1eb",
+      cardBg: "#fffaf5",
+      text: "#3c2921",
+      mutedText: "#8a736a",
+      accent: "#c45c3d",
+      buttonBg: "#c45c3d",
+      buttonText: "#ffffff",
+      border: "#e7d9cd",
+      fontHeading: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "20px",
+      cardRadius: "12px",
+    },
+  },
+  {
+    id: "electric-indigo",
+    name: "Electric Indigo",
+    description: "Deep oceanic navy with high-voltage indigo and cyan highlights.",
+    category: "SaaS Founders & Devs",
+    minTier: "creator",
+    tokens: {
+      bg: "#0b1120",
+      surface: "#111c35",
+      ink: "#f1f5f9",
+      accent: "#38bdf8",
+      fontDisplay: "'Manrope', sans-serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "electric-pill",
+    },
+    theme: {
+      bg: "#0b1120",
+      cardBg: "#111c35",
+      text: "#f1f5f9",
+      mutedText: "#94a3b8",
+      accent: "#38bdf8",
+      buttonBg: "#0284c7",
+      buttonText: "#ffffff",
+      border: "#1e293b",
+      fontHeading: "'Manrope', sans-serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "12px",
+      cardRadius: "10px",
+    },
+  },
+  {
+    id: "brutalist-raw",
+    name: "Brutalist Raw",
+    description: "Heavy 3px borders, hard drop shadows, and raw high-energy pop.",
+    category: "Streetwear & Subculture",
+    minTier: "pro",
+    tokens: {
+      bg: "#ffea79",
+      surface: "#ffffff",
+      ink: "#000000",
+      accent: "#ff3366",
+      fontDisplay: "'Manrope', sans-serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "hard-shadow",
+    },
+    theme: {
+      bg: "#ffea79",
+      cardBg: "#ffffff",
+      text: "#000000",
+      mutedText: "#444444",
+      accent: "#ff3366",
+      buttonBg: "#000000",
+      buttonText: "#ffffff",
+      border: "#000000",
+      fontHeading: "'Manrope', sans-serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "4px",
+      cardRadius: "4px",
+    },
+  },
+  {
+    id: "sunday-studio",
+    name: "Sunday Studio",
+    description: "Breezy coastal neutrals, soft linen textures, and sunlit clarity.",
+    category: "Authors & Podcasters",
+    minTier: "free",
+    tokens: {
+      bg: "#faf8f5",
+      surface: "#ffffff",
+      ink: "#232323",
+      accent: "#997027",
+      fontDisplay: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "linen-pill",
+    },
+    theme: {
+      bg: "#faf8f5",
+      cardBg: "#ffffff",
+      text: "#232323",
+      mutedText: "#777777",
+      accent: "#997027",
+      buttonBg: "#997027",
+      buttonText: "#ffffff",
+      border: "#ebe5dc",
+      fontHeading: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "9999px",
+      cardRadius: "16px",
+    },
+  },
+  {
+    id: "velvet-night",
+    name: "Velvet Night",
+    description: "Deep burgundy luxury with champagne gold typography for fine dining & hospitality.",
+    category: "Hospitality & Spirits",
+    minTier: "pro",
+    tokens: {
+      bg: "#180d14",
+      surface: "#261521",
+      ink: "#faede8",
+      accent: "#d4af37",
+      fontDisplay: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "gold-glow",
+    },
+    theme: {
+      bg: "#180d14",
+      cardBg: "#261521",
+      text: "#faede8",
+      mutedText: "#b89f9e",
+      accent: "#d4af37",
+      buttonBg: "#d4af37",
+      buttonText: "#180d14",
+      border: "#3d2235",
+      fontHeading: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "16px",
+      cardRadius: "12px",
+    },
+  },
+];
 
+export const BIOLIO_TEMPLATES: Record<string, BiolioTemplateConfig> = Object.fromEntries(
+  BIO_TEMPLATES.map((t) => [t.id, t])
+);

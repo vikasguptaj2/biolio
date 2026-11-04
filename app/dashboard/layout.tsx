@@ -1,189 +1,253 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { evaluateWorkspaceEntitlements } from "@/lib/entitlements";
+
+export const instant = false;
 import {
+  LayoutDashboard,
   Globe,
+  MessageSquareCode,
   BarChart3,
   CreditCard,
   Settings,
   ExternalLink,
   LogOut,
-  Layers,
+  ShieldAlert,
+  Lock,
+  Sparkles,
 } from "lucide-react";
-import { Instagram } from "@/components/icons/instagram";
-import { getSessionContext } from "@/lib/supabase/server";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { user, profile, workspace } = await getSessionContext();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     redirect("/signin");
   }
 
-  if (!workspace) {
-    redirect("/onboarding");
+  // Fetch active workspace + entitlements for this user
+  const { data: workspaces } = await supabase
+    .from("workspaces")
+    .select(
+      "id, name, slug, status, intended_modules, workspace_entitlements(*)"
+    )
+    .eq("owner_id", user.id)
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  interface WorkspaceLayoutItem {
+    id: string;
+    name: string;
+    slug: string;
+    status: string;
+    intended_modules?: string[] | null;
+    workspace_entitlements?: Record<string, unknown> | Array<Record<string, unknown>> | null;
   }
 
-  const handle = workspace.slug;
+  const activeWorkspace = (workspaces?.[0] as unknown) as WorkspaceLayoutItem | undefined;
+  const rawEnt = Array.isArray(activeWorkspace?.workspace_entitlements)
+    ? activeWorkspace.workspace_entitlements[0]
+    : activeWorkspace?.workspace_entitlements;
+
+  const entitlements = evaluateWorkspaceEntitlements(
+    rawEnt,
+    activeWorkspace?.intended_modules
+  );
+
+  const navItems = [
+    {
+      name: "Overview",
+      href: "/dashboard",
+      icon: LayoutDashboard,
+      locked: false,
+    },
+    {
+      name: "Bio Website Studio",
+      href: "/dashboard/bio",
+      icon: Globe,
+      locked: entitlements.isBioProductLocked,
+      tierBadge: entitlements.isBioProductLocked
+        ? "LOCKED"
+        : entitlements.bioTier.toUpperCase(),
+    },
+    {
+      name: "IG DM Automation",
+      href: "/dashboard/automation",
+      icon: MessageSquareCode,
+      locked: entitlements.isAutomationProductLocked,
+      tierBadge: entitlements.isAutomationProductLocked
+        ? "LOCKED"
+        : entitlements.igTier.toUpperCase(),
+    },
+    {
+      name: "Privacy Analytics",
+      href: "/dashboard/analytics",
+      icon: BarChart3,
+      locked: false,
+    },
+    {
+      name: "Billing & Coupons",
+      href: "/dashboard/billing",
+      icon: CreditCard,
+      locked: false,
+    },
+    {
+      name: "Workspace Settings",
+      href: "/dashboard/settings",
+      icon: Settings,
+      locked: false,
+    },
+  ];
 
   return (
-    <div className="min-h-screen flex bg-[#f4efe7] text-[#211b29]">
-      {/* Sidebar Navigation */}
-      <aside className="w-64 border-r border-[#e5dcd1] bg-[#211b29] text-white flex flex-col justify-between shrink-0 hidden md:flex sticky top-0 h-screen">
-        <div>
-          {/* Brand & Workspace Pill */}
-          <div className="p-6 border-b border-[#342b3d]">
-            <Link href="/dashboard" className="flex items-center gap-2 mb-6 group">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f36b3f] text-white font-display font-extrabold text-lg shadow-sm">
+    <div className="min-h-screen bg-[#fbf8f2] flex flex-col md:flex-row">
+      {/* Sidebar */}
+      <aside className="w-full md:w-68 border-b md:border-b-0 md:border-r border-[#e5dcd1] bg-[#fffdf8] flex flex-col justify-between shrink-0">
+        <div className="p-6">
+          {/* Brand Header */}
+          <div className="flex items-center justify-between mb-6">
+            <Link href="/dashboard" className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f36b3f] text-white font-display font-extrabold text-base shadow-sm">
                 B
               </div>
-              <span className="font-display font-extrabold text-2xl tracking-tighter text-white">
+              <span className="font-display font-extrabold text-xl tracking-tighter text-[#211b29]">
                 Biolio<span className="text-[#f36b3f]">.</span>
               </span>
             </Link>
-
-            {/* Workspace Selector Card */}
-            <div className="rounded-xl border border-[#3a3040] bg-[#2c2435] p-3 flex items-center justify-between">
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-bold text-white truncate">
-                  {workspace.name || "My Atelier"}
-                </div>
-                <div className="text-[10px] text-[#b9aebb] truncate font-mono">
-                  biolio.site/{handle}
-                </div>
-              </div>
-              <span className="h-2 w-2 rounded-full bg-[#277a67]" />
-            </div>
+            <span className="rounded-full bg-[#f3ece2] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#211b29]">
+              v6.0
+            </span>
           </div>
 
-          {/* Nav Links */}
-          <nav className="p-4 space-y-1">
-            <Link
-              href="/dashboard"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-[#d2c8d7] hover:bg-[#342b3d] hover:text-white transition-colors"
-            >
-              <Layers className="h-4 w-4 text-[#f36b3f]" />
-              Workspace Hub
-            </Link>
+          {/* Workspace Pill + Active Plan Scope */}
+          {activeWorkspace ? (
+            <div className="mb-6 rounded-2xl border border-[#e5dcd1] bg-[#fbf8f2] p-3.5">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#7c727e]">
+                Active Workspace
+              </div>
+              <div className="font-display font-bold text-sm text-[#211b29] truncate">
+                {activeWorkspace.name}
+              </div>
+              <Link
+                href={`/${activeWorkspace.slug}`}
+                target="_blank"
+                className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-[#f36b3f] hover:underline"
+              >
+                biolio.site/{activeWorkspace.slug}
+                <ExternalLink className="h-3 w-3" />
+              </Link>
 
-            <Link
-              href="/dashboard/bio"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-[#d2c8d7] hover:bg-[#342b3d] hover:text-white transition-colors"
-            >
-              <Globe className="h-4 w-4 text-[#f36b3f]" />
-              Bio Website Studio
-            </Link>
+              <div className="mt-3 pt-2.5 border-t border-[#e5dcd1] flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-[#211b29]">
+                  <Sparkles className="h-3 w-3 text-[#f36b3f]" />
+                  {entitlements.scope === "bio_only"
+                    ? "Bio Standalone"
+                    : entitlements.scope === "automation_only"
+                    ? "IG Standalone"
+                    : entitlements.scope === "bundle"
+                    ? "All-in-One Bundle"
+                    : "Starter Free"}
+                </span>
+                <Link
+                  href="/dashboard/billing"
+                  className="text-[10px] font-bold text-[#f36b3f] hover:underline"
+                >
+                  Change Plan
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="mb-6 rounded-2xl border border-dashed border-[#f36b3f] bg-[#fff5f0] p-3.5">
+              <div className="text-xs font-bold text-[#211b29] mb-1">
+                No handle claimed yet
+              </div>
+              <Link
+                href="/onboarding"
+                className="inline-flex items-center gap-1 text-xs font-bold text-[#f36b3f] hover:underline"
+              >
+                Claim your handle &rarr;
+              </Link>
+            </div>
+          )}
 
-            <Link
-              href="/dashboard/automation"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-[#d2c8d7] hover:bg-[#342b3d] hover:text-white transition-colors"
-            >
-              <Instagram className="h-4 w-4 text-[#c9b5f4]" />
-              Instagram Automation
-            </Link>
-
-            <Link
-              href="/dashboard/analytics"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-[#d2c8d7] hover:bg-[#342b3d] hover:text-white transition-colors"
-            >
-              <BarChart3 className="h-4 w-4 text-[#6ac2a2]" />
-              Analytics & Clicks
-            </Link>
-
-            <Link
-              href="/dashboard/billing"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-[#d2c8d7] hover:bg-[#342b3d] hover:text-white transition-colors"
-            >
-              <CreditCard className="h-4 w-4 text-[#fce8df]" />
-              Plans & Billing
-            </Link>
-
-            <Link
-              href="/dashboard/settings"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-[#d2c8d7] hover:bg-[#342b3d] hover:text-white transition-colors"
-            >
-              <Settings className="h-4 w-4 text-[#a99ca7]" />
-              Settings
-            </Link>
+          {/* Navigation */}
+          <nav className="space-y-1">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-bold text-[#4b4351] hover:bg-[#f3ece2] hover:text-[#211b29] transition-colors"
+                >
+                  <span className="flex items-center gap-3">
+                    <Icon className="h-4 w-4 text-[#f36b3f]" />
+                    {item.name}
+                  </span>
+                  {item.tierBadge && (
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase ${
+                        item.locked
+                          ? "bg-[#a62639]/15 text-[#a62639]"
+                          : "bg-[#277a67]/15 text-[#1e6051]"
+                      }`}
+                    >
+                      {item.locked && <Lock className="h-2.5 w-2.5" />}
+                      {item.tierBadge}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
           </nav>
         </div>
 
-        {/* Footer / User Profile & Live Link */}
-        <div className="p-4 border-t border-[#342b3d] space-y-3">
+        {/* User Footer */}
+        <div className="p-6 border-t border-[#e5dcd1] space-y-3">
           <Link
-            href={`/${handle}`}
-            target="_blank"
-            className="flex items-center justify-between px-3 py-2 rounded-lg bg-[#3a3040] text-xs font-bold text-white hover:bg-[#473b4f] transition-colors"
+            href="/admin/login"
+            className="flex items-center gap-2 rounded-xl px-3 py-2 text-[11px] font-bold text-[#7c727e] hover:bg-[#f3ece2] hover:text-[#211b29] transition-colors"
           >
-            <span className="flex items-center gap-2 truncate">
-              <Globe className="h-3.5 w-3.5 text-[#f36b3f]" />
-              View Live Bio
-            </span>
-            <ExternalLink className="h-3.5 w-3.5 text-[#b9aebb]" />
+            <ShieldAlert className="h-3.5 w-3.5 text-[#f36b3f]" />
+            Super Admin Console
           </Link>
-
-          <div className="flex items-center justify-between pt-2">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="h-8 w-8 rounded-full bg-[#f36b3f] text-white flex items-center justify-center font-bold text-xs shrink-0">
-                {user.email?.charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-white truncate">
-                  {profile?.full_name || "Creator"}
-                </div>
-                <div className="text-[10px] text-[#b9aebb] truncate">
-                  {user.email}
-                </div>
-              </div>
-            </div>
-
-            <form action="/auth/signout" method="post">
-              <button
-                type="submit"
-                title="Sign out"
-                className="p-1.5 text-[#b9aebb] hover:text-white transition-colors"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
-            </form>
+          <div className="px-3 text-[11px] text-[#7c727e] truncate">
+            {user.email}
           </div>
+          <form action="/auth/signout" method="post">
+            <button
+              type="submit"
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-[#a62639] hover:bg-[#fde8eb] transition-colors"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Sign out
+            </button>
+          </form>
         </div>
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Header Bar */}
-        <header className="h-16 border-b border-[#e5dcd1] bg-[#fffdf8] px-6 lg:px-10 flex items-center justify-between sticky top-0 z-30">
-          <div className="flex items-center gap-3 text-xs">
-            <span className="text-[#7c727e]">Workspace</span>
-            <span className="text-[#a99ca7]">/</span>
-            <span className="font-bold text-[#211b29]">{workspace.name}</span>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="hidden sm:flex items-center gap-2 rounded-full border border-[#e5dcd1] bg-[#f4efe7] px-3 py-1 text-[11px] font-bold text-[#277a67]">
-              <span className="h-2 w-2 rounded-full bg-[#277a67] animate-pulse" />
-              PostgreSQL 17 Synced
-            </div>
-
-            <Link
-              href={`/${handle}`}
-              target="_blank"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#211b29] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#3a3040] transition-colors"
-            >
-              <span>biolio.site/{handle}</span>
-              <ExternalLink className="h-3 w-3 text-[#f36b3f]" />
-            </Link>
-          </div>
-        </header>
-
-        {/* Child Pages */}
-        <div className="flex-1 overflow-auto">{children}</div>
-      </div>
+      <main className="flex-1 overflow-y-auto p-6 md:p-10">
+        <div className="mx-auto max-w-6xl">
+          <Suspense
+            fallback={
+              <div className="p-8 text-xs text-[#7c727e] animate-pulse">
+                Loading dashboard...
+              </div>
+            }
+          >
+            {children}
+          </Suspense>
+        </div>
+      </main>
     </div>
   );
 }
-

@@ -37,6 +37,12 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_auth_user();
+
 -- 2. Race-Safe Workspace & Handle Claim Provisioning (Fixes P1.11 & P1.14)
 CREATE OR REPLACE FUNCTION public.provision_workspace_and_claim_handle(
   p_handle TEXT,
@@ -72,9 +78,23 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'code', 'HANDLE_TAKEN', 'message', 'This username is already claimed.');
   END IF;
 
-  INSERT INTO public.workspaces (owner_id, name, slug, creator_role, intended_modules)
-  VALUES (v_user_id, trim(p_display_name), v_clean_handle, p_creator_role, p_intended_modules)
-  RETURNING id INTO v_workspace_id;
+  -- Defensive upsert into public.user_profiles so FK workspaces_owner_id_fkey never fails
+  INSERT INTO public.user_profiles (id, email, full_name)
+  SELECT
+    u.id,
+    COALESCE(u.email, v_clean_handle || '@biolio.site'),
+    COALESCE(NULLIF(trim(p_display_name), ''), u.raw_user_meta_data ->> 'full_name', v_clean_handle)
+  FROM auth.users u
+  WHERE u.id = v_user_id
+  ON CONFLICT (id) DO NOTHING;
+
+  BEGIN
+    INSERT INTO public.workspaces (owner_id, name, slug, creator_role, intended_modules)
+    VALUES (v_user_id, trim(p_display_name), v_clean_handle, p_creator_role, p_intended_modules)
+    RETURNING id INTO v_workspace_id;
+  EXCEPTION WHEN unique_violation THEN
+    RETURN jsonb_build_object('ok', false, 'code', 'HANDLE_TAKEN', 'message', 'This username is already claimed.');
+  END;
 
   INSERT INTO public.workspace_members (workspace_id, user_id, role, status)
   VALUES (v_workspace_id, v_user_id, 'owner', 'active');
@@ -94,7 +114,8 @@ BEGIN
     'ok', true,
     'workspace_id', v_workspace_id,
     'bio_profile_id', v_bio_profile_id,
-    'handle', v_clean_handle
+    'handle', v_clean_handle,
+    'status', 'provisioned'
   );
 END;
 $$;
@@ -150,7 +171,15 @@ BEGIN
 
   -- Build complete, self-contained immutable render projection (P1.4)
   v_snapshot := jsonb_build_object(
+    'workspace_id', p_workspace_id,
+    'handle', v_profile.handle,
+    'display_name', v_profile.display_name,
+    'tagline', v_profile.tagline,
+    'bio_text', v_profile.short_bio,
+    'location', v_profile.location,
+    'template_id', v_profile.template_id,
     'profile', jsonb_build_object(
+      'workspace_id', p_workspace_id,
       'handle', v_profile.handle,
       'display_name', v_profile.display_name,
       'tagline', v_profile.tagline,
@@ -202,6 +231,7 @@ BEGIN
     'ok', true,
     'published_version_id', v_snapshot_id,
     'version_number', v_new_version,
+    'draft_version', v_profile.draft_version + 1,
     'handle', v_profile.handle,
     'published_at', NOW()
   );
