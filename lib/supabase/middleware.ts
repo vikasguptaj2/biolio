@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/src/types/database.types";
+import { ADMIN_COOKIE_NAME } from "@/lib/admin-auth";
 
 export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
@@ -13,8 +14,24 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  // 1. Admin routes: check opaque/signed cookie presence without calling Supabase Auth
+  if (pathname.startsWith("/admin")) {
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
+    response.headers.set("Cache-Control", "no-store");
+    if (!pathname.startsWith("/admin/login")) {
+      const adminCookie = request.cookies.get(ADMIN_COOKIE_NAME)?.value;
+      if (!adminCookie) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = "/admin/login";
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
+    return response;
+  }
+
+  // 2. Creator Dashboard & Onboarding routes: refresh Supabase session
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
     return response;
@@ -25,7 +42,13 @@ export async function updateSession(request: NextRequest) {
       getAll() {
         return request.cookies.getAll();
       },
-      setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
+      setAll(
+        cookiesToSet: Array<{
+          name: string;
+          value: string;
+          options?: Record<string, unknown>;
+        }>
+      ) {
         cookiesToSet.forEach(({ name, value }) =>
           request.cookies.set(name, value)
         );
@@ -35,7 +58,11 @@ export async function updateSession(request: NextRequest) {
           },
         });
         cookiesToSet.forEach(({ name, value, options }) =>
-          response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2])
+          response.cookies.set(
+            name,
+            value,
+            options as Parameters<typeof response.cookies.set>[2]
+          )
         );
       },
     },
@@ -45,25 +72,14 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Protected route checking:
-  // 1. Dashboard routes require an active session
-  if (pathname.startsWith("/dashboard") && !user) {
+  if (
+    (pathname.startsWith("/dashboard") || pathname.startsWith("/onboarding")) &&
+    !user
+  ) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/signin";
-    redirectUrl.searchParams.set("redirectTo", pathname);
+    redirectUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(redirectUrl);
-  }
-
-  // 2. Admin routes require an active Super Admin HMAC session cookie
-  // (Layer 1 enforcement: intercept missing cookie and redirect to login)
-  if (pathname.startsWith("/admin") && !pathname.startsWith("/admin/login")) {
-    const adminSessionCookie = request.cookies.get("biolio_admin_session")?.value;
-    if (!adminSessionCookie) {
-      const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = "/admin/login";
-      redirectUrl.searchParams.set("redirectTo", pathname);
-      return NextResponse.redirect(redirectUrl);
-    }
   }
 
   return response;

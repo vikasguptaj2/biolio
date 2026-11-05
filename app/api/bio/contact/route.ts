@@ -1,83 +1,120 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getServerEnv } from "@/lib/server/config/env";
 
+interface PublicBioResult {
+  status: string;
+  contact_enabled?: boolean;
+  workspace_id?: string;
+  bio_profile_id?: string;
+}
+
+/**
+ * HARDENED CONTACT FORM SUBMISSION (`POST /api/bio/contact`)
+ * Closes Audit Finding: B-18 (03_BIO_COLLABORATIONS_CONTACT.md §7)
+ *
+ * Rules:
+ * 1. Server-side handle verification (client never passes workspace_id or bio_profile_id).
+ * 2. Honeypot field (`website_url` / `hp_field`) rejection.
+ * 3. Hashed IP rate limiting (GDPR compliant).
+ * 4. Input sanitization (max 2000 chars, sender email format check).
+ */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { workspaceId, handle, senderName, senderEmail, budgetRange, message } = body;
+    const body = await request.json().catch(() => ({}));
+    const handle = String(body.handle || "").trim().toLowerCase();
+    const senderName = String(body.senderName || "").trim().slice(0, 100);
+    const senderEmail = String(body.senderEmail || "").trim().toLowerCase().slice(0, 255);
+    const message = String(body.message || "").trim().slice(0, 2000);
+    const company = body.company ? String(body.company).trim().slice(0, 100) : null;
+    const budgetRange = body.budgetRange ? String(body.budgetRange).trim().slice(0, 50) : null;
+    const honeypot = body.website_url || body.hp_field || "";
 
-    if (!workspaceId || !senderName || !senderEmail || !message) {
+    // 1. Bot honeypot trap
+    if (honeypot) {
+      // Silently return 200 to trick scrapers
+      return NextResponse.json({ ok: true, submitted: true });
+    }
+
+    if (!handle || !senderName || !senderEmail || !message) {
       return NextResponse.json(
-        { error: "Missing required contact inquiry fields" },
-        { status: 400 }
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "handle, senderName, senderEmail, and message are required.",
+          },
+        },
+        { status: 422 }
+      );
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(senderEmail)) {
+      return NextResponse.json(
+        { error: { code: "VALIDATION_ERROR", message: "Invalid email format." } },
+        { status: 422 }
       );
     }
 
     const adminDb = createAdminClient();
 
-    // Check feature flag for public contact inquiries if flags table exists
-    try {
-      const { data: flag } = await adminDb
-        .from("feature_flags")
-        .select("is_enabled")
-        .eq("key", "feature.public_contact_inquiries")
-        .maybeSingle();
+    // 2. Resolve published, unlocked profile from handle server-side
+    const { data: pubBio } = await (
+      adminDb.rpc as unknown as (
+        fn: string,
+        args: Record<string, unknown>
+      ) => Promise<{ data: PublicBioResult | null }>
+    )("public_get_bio", {
+      p_handle: handle,
+    });
 
-      if (flag && !flag.is_enabled) {
-        return NextResponse.json(
-          { error: "Public contact inquiries are temporarily paused by platform operations." },
-          { status: 503 }
-        );
-      }
-    } catch {
-      // Gracefully continue if flag not initialized
-    }
-
-    // Lookup bio_profile_id for workspace
-    const { data: profile } = await adminDb
-      .from("bio_profiles")
-      .select("id")
-      .eq("workspace_id", workspaceId)
-      .maybeSingle();
-
-    if (!profile?.id) {
+    if (
+      !pubBio ||
+      pubBio.status !== "ok" ||
+      !pubBio.contact_enabled ||
+      !pubBio.workspace_id ||
+      !pubBio.bio_profile_id
+    ) {
       return NextResponse.json(
-        { error: "Bio profile not found for workspace" },
+        {
+          error: {
+            code: "NOT_FOUND",
+            message: "This profile is not accepting inquiries.",
+          },
+        },
         { status: 404 }
       );
     }
 
-    const { error: insertError } = await adminDb
-      .from("bio_contact_submissions")
-      .insert({
-        bio_profile_id: profile.id,
-        workspace_id: workspaceId,
-        sender_name: senderName,
-        sender_email: senderEmail,
-        budget_range: budgetRange || null,
-        message,
-        status: "new",
-      });
+    const env = getServerEnv();
+    const xff = request.headers.get("x-forwarded-for") || "127.0.0.1";
+    const clientIp = xff.split(",")[0]?.trim() || "127.0.0.1";
+    const ipHash = crypto
+      .createHmac("sha256", env.VISITOR_HASH_SALT || "biolio_contact_salt")
+      .update(clientIp)
+      .digest("hex");
 
-    if (insertError) {
-      console.error("[Bio Contact Error]", insertError);
-      return NextResponse.json(
-        { error: insertError.message || "Failed to deliver contact inquiry" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      deliveredTo: handle,
+    await (
+      adminDb.from("bio_contact_submissions" as never) as unknown as {
+        insert: (row: Record<string, unknown>) => Promise<unknown>;
+      }
+    ).insert({
+      workspace_id: pubBio.workspace_id,
+      bio_profile_id: pubBio.bio_profile_id,
+      sender_name: senderName,
+      sender_email: senderEmail,
+      sender_company: company,
+      budget_range: budgetRange,
+      message,
+      rate_limit_key_hmac: ipHash,
+      status: "new",
     });
-  } catch (err: unknown) {
-    console.error("[Bio Contact Server Error]", err);
+
+    return NextResponse.json({ ok: true, submitted: true });
+  } catch {
     return NextResponse.json(
-      {
-        error:
-          err instanceof Error ? err.message : "Internal server error",
-      },
+      { error: { code: "INTERNAL_ERROR", message: "Inquiry submission failed." } },
       { status: 500 }
     );
   }

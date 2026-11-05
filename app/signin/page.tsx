@@ -2,62 +2,62 @@
 
 import { useState, Suspense } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, AlertCircle, CheckCircle2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { AlertCircle, ShieldCheck, Sparkles } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-function SignInForm() {
-  const router = useRouter();
+const ERROR_MESSAGES: Record<string, string> = {
+  oauth_failed:
+    "Google authentication could not be completed. Please try again.",
+  suspended:
+    "This creator account has been suspended by Trust & Safety.",
+  unverified:
+    "Your Google account email must be verified to sign in to Biolio.",
+};
+
+function SignInScreen() {
   const searchParams = useSearchParams();
-  const redirectTo = searchParams?.get("redirectTo") || "/dashboard";
+  const nextParam =
+    searchParams?.get("next") || searchParams?.get("redirectTo") || "/dashboard";
+  const errorCode = searchParams?.get("error") || "";
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isMagicLink, setIsMagicLink] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(
+    ERROR_MESSAGES[errorCode] || null
+  );
 
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-    setSuccessMsg(null);
+  async function handleGoogleSignIn() {
     setLoading(true);
-
+    setErrorMsg(null);
     try {
       const supabase = createClient();
+      const safeNext = nextParam.startsWith("/") && !nextParam.startsWith("//")
+        ? nextParam
+        : "/dashboard";
 
-      if (isMagicLink) {
-        const { error } = await supabase.auth.signInWithOtp({
-          email,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback?redirectTo=${encodeURIComponent(
-              redirectTo
-            )}`,
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(
+            safeNext
+          )}`,
+          queryParams: {
+            prompt: "select_account",
           },
-        });
-        if (error) throw error;
-        setSuccessMsg(
-          "Check your inbox! We sent you a secure magic sign-in link."
-        );
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) throw error;
+        },
+      });
 
-        // Route to dashboard or targeted redirect
-        router.push(redirectTo);
-        router.refresh();
+      if (error) {
+        setErrorMsg(error.message);
+        setLoading(false);
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to sign in. Please verify your credentials.";
-      setErrorMsg(message);
-    } finally {
+      setErrorMsg(
+        err instanceof Error ? err.message : "Unable to start Google sign-in."
+      );
       setLoading(false);
     }
-  };
+  }
 
   return (
     <div className="min-h-screen flex flex-col justify-center py-12 px-6 sm:px-12 bg-[#f4efe7] text-[#211b29]">
@@ -70,108 +70,50 @@ function SignInForm() {
             Biolio<span className="text-[#f36b3f]">.</span>
           </span>
         </Link>
-        <h2 className="font-editorial text-3xl font-bold tracking-tight text-[#211b29]">
-          Welcome back to the Atelier.
-        </h2>
+        <div className="inline-flex items-center gap-1.5 rounded-full bg-[#f36b3f]/15 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-[#d44d22] mb-3">
+          <Sparkles className="h-3.5 w-3.5" />
+          Passwordless Creator Identity
+        </div>
+        <h1 className="font-display text-3xl font-extrabold tracking-tight text-[#211b29]">
+          Sign in or create your Biolio workspace
+        </h1>
         <p className="mt-2 text-xs text-[#7c727e]">
-          Sign in to manage your bio website and Instagram automations.
+          One verified Google identity for both Biolio Bio and Instagram DM Automation.
         </p>
       </div>
 
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="rounded-2xl border border-[#e5dcd1] bg-[#fffdf8] p-8 shadow-md">
+        <div className="rounded-3xl border border-[#e5dcd1] bg-[#fffdf8] p-8 shadow-xl space-y-6">
           {errorMsg && (
-            <div className="mb-6 rounded-lg bg-[#fce8df] p-3 text-xs text-[#c45a3a] flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />
+            <div className="rounded-xl bg-[#fce8df] border border-[#f5c2c7] p-3.5 text-xs text-[#842029] flex items-start gap-2.5">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>{errorMsg}</span>
             </div>
           )}
 
-          {successMsg && (
-            <div className="mb-6 rounded-lg bg-[#e4f1eb] p-3 text-xs text-[#277a67] flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              <span>{successMsg}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSignIn} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-[#211b29] mb-1.5">
-                Email Address
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="creator@atelier.com"
-                className="w-full rounded-lg border border-[#e5dcd1] bg-[#f4efe7] px-3.5 py-2.5 text-xs text-[#211b29] focus:outline-none focus:border-[#f36b3f]"
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={loading}
+            className="w-full inline-flex items-center justify-center gap-3 rounded-2xl bg-[#211b29] py-4 px-5 text-sm font-extrabold text-white shadow-md hover:bg-[#3a3040] disabled:opacity-50 transition-all"
+          >
+            <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="#EA4335"
+                d="M12 10.2v3.9h5.5c-.2 1.3-1.6 3.8-5.5 3.8-3.3 0-6-2.7-6-6.1s2.7-6.1 6-6.1c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.9 3 14.7 2 12 2 6.5 2 2 6.5 2 12s4.5 10 10 10c5.8 0 9.6-4.1 9.6-9.8 0-.7-.1-1.2-.2-1.7H12z"
               />
+            </svg>
+            {loading ? "Redirecting to Google..." : "Continue with Google"}
+          </button>
+
+          <div className="rounded-2xl border border-[#e5dcd1] bg-[#fbf8f2] p-4 text-[11px] text-[#5d5360] space-y-1.5">
+            <div className="flex items-center gap-1.5 font-bold text-[#211b29]">
+              <ShieldCheck className="h-4 w-4 text-[#277a67]" />
+              Zero Password Pre-Hijacking
             </div>
-
-            {!isMagicLink && (
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-bold text-[#211b29]">
-                    Password
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setIsMagicLink(true)}
-                    className="text-[11px] font-semibold text-[#f36b3f] hover:underline"
-                  >
-                    Use magic link instead?
-                  </button>
-                </div>
-                <input
-                  type="password"
-                  required={!isMagicLink}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  className="w-full rounded-lg border border-[#e5dcd1] bg-[#f4efe7] px-3.5 py-2.5 text-xs text-[#211b29] focus:outline-none focus:border-[#f36b3f]"
-                />
-              </div>
-            )}
-
-            {isMagicLink && (
-              <div className="text-right">
-                <button
-                  type="button"
-                  onClick={() => setIsMagicLink(false)}
-                  className="text-[11px] font-semibold text-[#f36b3f] hover:underline"
-                >
-                  Use password instead?
-                </button>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-[#f36b3f] py-3 px-4 text-xs font-bold text-white shadow-sm hover:bg-[#ee7048] disabled:opacity-50 transition-all mt-2"
-            >
-              {loading ? (
-                "Signing In..."
-              ) : isMagicLink ? (
-                "Send Magic Link"
-              ) : (
-                <>
-                  Sign In to Dashboard
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </button>
-          </form>
-
-          <div className="mt-6 pt-6 border-t border-[#eee6dc] text-center text-xs text-[#7c727e]">
-            Don&apos;t have an account yet?{" "}
-            <Link
-              href="/signup"
-              className="font-bold text-[#211b29] hover:text-[#f36b3f] transition-colors"
-            >
-              Claim your handle &rarr;
-            </Link>
+            <p className="leading-relaxed">
+              Biolio uses Google OAuth 2.0 PKCE exclusively for creators. New accounts automatically proceed to handle claiming on <code className="font-mono">/onboarding</code>.
+            </p>
           </div>
         </div>
       </div>
@@ -182,8 +124,7 @@ function SignInForm() {
 export default function SignInPage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-[#f4efe7]" />}>
-      <SignInForm />
+      <SignInScreen />
     </Suspense>
   );
 }
-

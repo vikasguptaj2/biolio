@@ -42,6 +42,7 @@ export async function createClient(): Promise<TypedSupabaseClient> {
 
 /**
  * Returns current authenticated user and their active workspace context.
+ * Uses `.limit(1)` instead of `.single()` on memberships so multi-workspace accounts never throw (Closes B-19).
  */
 export async function getSessionContext() {
   const supabase = await createClient();
@@ -59,15 +60,18 @@ export async function getSessionContext() {
     .from("user_profiles")
     .select("*")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
   // Fetch user's active workspace membership (or default one)
-  const { data: membership } = await supabase
+  const { data: memberships } = await supabase
     .from("workspace_members")
     .select("workspace_id, role, status")
     .eq("user_id", user.id)
-    .single();
+    .eq("status", "active")
+    .order("created_at", { ascending: true })
+    .limit(1);
 
+  const membership = memberships?.[0] || null;
   if (!membership?.workspace_id) {
     return { user, profile, workspace: null, membership: null };
   }
@@ -76,7 +80,7 @@ export async function getSessionContext() {
     .from("workspaces")
     .select("*")
     .eq("id", membership.workspace_id)
-    .single();
+    .maybeSingle();
 
   return {
     user,

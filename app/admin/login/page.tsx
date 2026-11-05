@@ -5,9 +5,14 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ShieldAlert, Lock, Loader2, AlertCircle, KeyRound } from "lucide-react";
 
+/**
+ * HARDENED SUPER ADMIN LOGIN PAGE (`app/admin/login/page.tsx`)
+ * Closes Audit Findings: B-02, B-10
+ * Zero literal credentials or default password hints in client source code.
+ */
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@biolio.site");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,11 +32,10 @@ export default function AdminLoginPage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(
-          data.error ||
-            "Invalid Super Admin credentials. Only the configured single admin email and fixed password are permitted."
+          data?.error?.message || "Invalid credentials or rate limit exceeded."
         );
         setLoading(false);
         return;
@@ -39,12 +43,8 @@ export default function AdminLoginPage() {
 
       router.push("/admin");
       router.refresh();
-    } catch (err: unknown) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to contact Super Admin auth gate."
-      );
+    } catch {
+      setError("Failed to contact Super Admin authentication gate.");
       setLoading(false);
     }
   }
@@ -61,7 +61,7 @@ export default function AdminLoginPage() {
               Biolio Super Admin
             </h1>
             <p className="text-[11px] font-bold uppercase tracking-widest text-[#ff8f85]">
-              Single-Email &amp; Fixed-Password Gate
+              Isolated Operator Session Gate
             </p>
           </div>
         </div>
@@ -69,12 +69,10 @@ export default function AdminLoginPage() {
         <div className="mb-6 rounded-xl border border-[#3a3042] bg-[#16121c] p-3.5 text-[11px] text-[#c4b8cb] leading-relaxed">
           <div className="flex items-center gap-1.5 font-bold text-[#f5b851] mb-1">
             <KeyRound className="h-3.5 w-3.5" />
-            Dedicated Root Credential Lock
+            Server-Verified Root Credential Gate
           </div>
-          Protected by server-verified <code className="text-white">ADMIN_SUPER_EMAIL</code> &amp;{" "}
-          <code className="text-white">ADMIN_SUPER_PASSWORD</code> (default:{" "}
-          <code className="text-[#6ac2a2]">admin@biolio.site</code> /{" "}
-          <code className="text-[#6ac2a2]">BiolioAdmin@2026!</code>).
+          Protected by <code className="text-white">ADMIN_EMAIL</code> and{" "}
+          <code className="text-white">ADMIN_PASSWORD_HASH</code> (scrypt) with brute-force lockout and audited session tracking.
         </div>
 
         {error && (
@@ -87,28 +85,30 @@ export default function AdminLoginPage() {
         <form onSubmit={handleAdminSignIn} className="space-y-4">
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-[#9e93a4] mb-1.5">
-              Authorized Super Admin Email
+              Authorized Operator Email
             </label>
             <input
               type="email"
               required
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@biolio.site"
+              placeholder="operator@biolio.site"
               className="w-full rounded-xl border border-[#2e2638] bg-[#16121c] px-4 py-3 text-sm text-white placeholder:text-[#5e5466] focus:border-[#f36b3f] focus:outline-none"
             />
           </div>
 
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-[#9e93a4] mb-1.5">
-              Fixed Master Password
+              Master Password
             </label>
             <input
               type="password"
               required
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="BiolioAdmin@2026!"
+              placeholder="••••••••••••••••"
               className="w-full rounded-xl border border-[#2e2638] bg-[#16121c] px-4 py-3 text-sm text-white placeholder:text-[#5e5466] focus:border-[#f36b3f] focus:outline-none"
             />
           </div>
@@ -123,7 +123,7 @@ export default function AdminLoginPage() {
             ) : (
               <Lock className="h-4 w-4" />
             )}
-            Authenticate Super Admin Session
+            Authenticate Operator Session
           </button>
         </form>
 
