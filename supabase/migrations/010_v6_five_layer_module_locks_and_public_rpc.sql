@@ -382,6 +382,8 @@ GRANT EXECUTE ON FUNCTION public.public_get_bio(TEXT) TO anon, authenticated, se
 INSERT INTO public.reserved_handles (handle, reason)
 VALUES
   ('r', 'system_route'),
+  ('forgot-password', 'system_route'),
+  ('reset-password', 'system_route'),
   ('l', 'system_route'),
   ('u', 'system_route'),
   ('s', 'system_route'),

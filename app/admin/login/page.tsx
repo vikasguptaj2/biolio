@@ -93,7 +93,7 @@ export default function AdminLoginPage() {
               autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="operator@biolio.site"
+              placeholder="admin@biolio.site"
               className="w-full rounded-xl border border-[#2e2638] bg-[#16121c] px-4 py-3 text-sm text-white placeholder:text-[#5e5466] focus:border-[#f36b3f] focus:outline-none"
             />
           </div>

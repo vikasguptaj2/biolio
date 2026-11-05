@@ -4,26 +4,48 @@ import { useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Sparkles, ShieldCheck, AlertCircle } from "lucide-react";
+import {
+  Sparkles,
+  ShieldCheck,
+  AlertCircle,
+  CheckCircle2,
+  User,
+  Mail,
+  Lock,
+  Loader2,
+} from "lucide-react";
 
 function SignUpScreen() {
   const searchParams = useSearchParams();
   const desiredHandle = (searchParams?.get("handle") || "")
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, "");
-  const [handleInput, setHandleInput] = useState(desiredHandle);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
+  const [handleInput, setHandleInput] = useState(desiredHandle);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // 1. Google OAuth — Intact & Untouched
   async function handleContinueWithGoogle(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
+    setGoogleLoading(true);
     setError(null);
+    setSuccessMsg(null);
 
     try {
       const supabase = createClient();
-      const onboardingPath = handleInput
-        ? `/onboarding?handle=${encodeURIComponent(handleInput)}`
+      const cleanHandle = handleInput
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "");
+      const onboardingPath = cleanHandle
+        ? `/onboarding?handle=${encodeURIComponent(cleanHandle)}`
         : "/onboarding";
 
       const { error: oauthErr } = await supabase.auth.signInWithOAuth({
@@ -40,13 +62,85 @@ function SignUpScreen() {
 
       if (oauthErr) {
         setError(oauthErr.message);
-        setLoading(false);
+        setGoogleLoading(false);
       }
     } catch (err: unknown) {
       setError(
         err instanceof Error ? err.message : "Failed to start Google sign-up."
       );
-      setLoading(false);
+      setGoogleLoading(false);
+    }
+  }
+
+  // 2. Email & Password Sign-Up
+  async function handleEmailSignUp(e: React.FormEvent) {
+    e.preventDefault();
+    setEmailLoading(true);
+    setError(null);
+    setSuccessMsg(null);
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters long.");
+      setEmailLoading(false);
+      return;
+    }
+
+    try {
+      const supabase = createClient();
+      const cleanHandle = handleInput
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "");
+      const onboardingPath = cleanHandle
+        ? `/onboarding?handle=${encodeURIComponent(cleanHandle)}`
+        : "/onboarding";
+
+      const { data, error: signUpErr } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim() || undefined,
+            preferred_handle: cleanHandle || undefined,
+          },
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(
+            onboardingPath
+          )}`,
+        },
+      });
+
+      if (signUpErr) {
+        setError(signUpErr.message);
+        setEmailLoading(false);
+        return;
+      }
+
+      // If session is immediately returned (e.g. email confirmations disabled)
+      if (data?.session && data.user) {
+        await supabase.from("user_profiles").upsert(
+          {
+            id: data.user.id,
+            email: data.user.email || email.trim(),
+            full_name: fullName.trim() || email.split("@")[0] || "Creator",
+            account_status: "active",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
+
+        window.location.href = onboardingPath;
+      } else {
+        // Confirmation email sent
+        setSuccessMsg(
+          `Verification email sent to ${email.trim()}! Please check your inbox and click the activation link to finish setting up your Biolio workspace.`
+        );
+        setEmailLoading(false);
+      }
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Failed to create Biolio account."
+      );
+      setEmailLoading(false);
     }
   }
 
@@ -70,10 +164,10 @@ function SignUpScreen() {
             Claim Your Creator Handle
           </div>
           <h1 className="font-display text-3xl font-extrabold text-[#211b29] tracking-tight mb-2">
-            Start with Google
+            Create Your Account
           </h1>
           <p className="text-xs text-[#7c727e]">
-            Sign in with Google to reserve your handle and choose Biolio Bio, Instagram Automation, or the Bundle.
+            Choose Google 1-Click or create with Email &amp; Password.
           </p>
         </div>
 
@@ -84,12 +178,23 @@ function SignUpScreen() {
           </div>
         )}
 
-        <form onSubmit={handleContinueWithGoogle} className="space-y-4">
+        {successMsg && (
+          <div className="rounded-xl border border-[#badbcc] bg-[#d1e7dd] p-4 text-xs text-[#0f5132] flex items-start gap-2.5">
+            <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5 text-[#0f5132]" />
+            <div>
+              <p className="font-bold mb-1">Check your inbox</p>
+              <p>{successMsg}</p>
+            </div>
+          </div>
+        )}
+
+        {/* 1. Google 1-Click OAuth */}
+        <form onSubmit={handleContinueWithGoogle} className="space-y-3">
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-[#4b4351] mb-1.5">
               Desired Handle (Optional)
             </label>
-            <div className="flex items-center rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] px-3.5 py-3 focus-within:border-[#f36b3f]">
+            <div className="flex items-center rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] px-3.5 py-2.5 focus-within:border-[#f36b3f]">
               <span className="text-xs font-bold text-[#7c727e] select-none">
                 biolio.site/
               </span>
@@ -109,8 +214,8 @@ function SignUpScreen() {
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full inline-flex items-center justify-center gap-3 rounded-2xl bg-[#211b29] py-4 px-5 text-sm font-extrabold text-white shadow-md hover:bg-[#3a3040] disabled:opacity-50 transition-all"
+            disabled={googleLoading || emailLoading}
+            className="w-full inline-flex items-center justify-center gap-3 rounded-2xl bg-[#211b29] py-3.5 px-5 text-sm font-extrabold text-white shadow-md hover:bg-[#3a3040] disabled:opacity-50 transition-all cursor-pointer"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -118,16 +223,100 @@ function SignUpScreen() {
                 d="M12 10.2v3.9h5.5c-.2 1.3-1.6 3.8-5.5 3.8-3.3 0-6-2.7-6-6.1s2.7-6.1 6-6.1c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.9 3 14.7 2 12 2 6.5 2 2 6.5 2 12s4.5 10 10 10c5.8 0 9.6-4.1 9.6-9.8 0-.7-.1-1.2-.2-1.7H12z"
               />
             </svg>
-            {loading ? "Redirecting to Google..." : "Continue with Google"}
+            {googleLoading ? "Redirecting to Google..." : "Continue with Google"}
+          </button>
+        </form>
+
+        {/* Elegant Divider */}
+        <div className="relative flex items-center justify-center">
+          <div className="border-t border-[#e5dcd1] w-full" />
+          <span className="bg-[#fffdf8] px-3 text-[11px] font-bold uppercase tracking-wider text-[#9e93a4]">
+            or sign up with email
+          </span>
+          <div className="border-t border-[#e5dcd1] w-full" />
+        </div>
+
+        {/* 2. Email & Password Sign Up Form */}
+        <form onSubmit={handleEmailSignUp} className="space-y-3.5">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-[#4b4351] mb-1">
+              Full Name
+            </label>
+            <div className="relative flex items-center">
+              <User className="absolute left-3.5 h-4 w-4 text-[#9e93a4]" />
+              <input
+                type="text"
+                autoComplete="name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Aria Jenkins"
+                className="w-full rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] pl-10 pr-4 py-2.5 text-sm font-medium text-[#211b29] placeholder:text-[#9e93a4] focus:border-[#f36b3f] focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-[#4b4351] mb-1">
+              Email Address
+            </label>
+            <div className="relative flex items-center">
+              <Mail className="absolute left-3.5 h-4 w-4 text-[#9e93a4]" />
+              <input
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="creator@example.com"
+                className="w-full rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] pl-10 pr-4 py-2.5 text-sm font-medium text-[#211b29] placeholder:text-[#9e93a4] focus:border-[#f36b3f] focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-[#4b4351] mb-1">
+              Password (min. 8 characters)
+            </label>
+            <div className="relative flex items-center">
+              <Lock className="absolute left-3.5 h-4 w-4 text-[#9e93a4]" />
+              <input
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••••••"
+                className="w-full rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] pl-10 pr-4 py-2.5 text-sm font-medium text-[#211b29] placeholder:text-[#9e93a4] focus:border-[#f36b3f] focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={emailLoading || googleLoading}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#f36b3f] py-3 px-5 text-sm font-bold text-white shadow-sm hover:bg-[#e25c30] disabled:opacity-50 transition-all cursor-pointer"
+          >
+            {emailLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Creating Account...</span>
+              </>
+            ) : (
+              <span>Create Biolio Account</span>
+            )}
           </button>
         </form>
 
         <div className="pt-4 border-t border-[#e5dcd1] flex items-center justify-between text-xs text-[#7c727e]">
           <span className="inline-flex items-center gap-1">
             <ShieldCheck className="h-3.5 w-3.5 text-[#277a67]" />
-            Google OAuth PKCE
+            Encrypted Supabase Auth
           </span>
-          <Link href="/signin" className="font-bold text-[#211b29] hover:text-[#f36b3f]">
+          <Link
+            href="/signin"
+            className="font-bold text-[#211b29] hover:text-[#f36b3f]"
+          >
             Already a creator? Sign in &rarr;
           </Link>
         </div>

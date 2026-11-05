@@ -44,7 +44,12 @@ function sanitizeNextPath(rawNext: string | null): string {
     return "/dashboard";
   }
 
-  const allowedPrefixes = ["/dashboard", "/onboarding"];
+  const allowedPrefixes = [
+    "/dashboard",
+    "/onboarding",
+    "/auth/reset-password",
+    "/reset-password",
+  ];
   const isAllowed = allowedPrefixes.some(
     (prefix) =>
       trimmed === prefix ||
@@ -122,6 +127,14 @@ export async function GET(request: NextRequest) {
   if (profile && (profile as { account_status: string | null }).account_status === "suspended") {
     await supabase.auth.signOut();
     return makeRedirect("/signin?error=suspended");
+  }
+
+  // If redirecting to password reset, bypass workspace check
+  if (
+    safeNext.startsWith("/auth/reset-password") ||
+    safeNext.startsWith("/reset-password")
+  ) {
+    return makeRedirect(safeNext);
   }
 
   // Check if user already has an active workspace membership
