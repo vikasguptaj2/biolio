@@ -97,6 +97,21 @@ export async function GET(request: NextRequest) {
     return makeRedirect("/signin?error=oauth_failed");
   }
 
+  // Defensively ensure user_profiles row exists for OAuth user
+  await supabase.from("user_profiles").upsert(
+    {
+      id: user.id,
+      email: user.email || `${user.id}@placeholder.biolio.site`,
+      full_name:
+        user.user_metadata?.full_name ||
+        user.email?.split("@")[0] ||
+        "Creator",
+      account_status: "active",
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" }
+  );
+
   // Check account_status in user_profiles
   const { data: profile } = await supabase
     .from("user_profiles")

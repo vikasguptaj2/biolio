@@ -77,6 +77,24 @@ function OnboardingContent() {
 
       const supabase = createClient();
 
+      // Defensively ensure user_profiles row exists before provisioning workspace
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user) {
+        await supabase.from("user_profiles").upsert(
+          {
+            id: user.id,
+            email: user.email || `${cleanHandle}@biolio.site`,
+            full_name: displayName.trim() || user.user_metadata?.full_name || cleanHandle,
+            account_status: "active",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
+      }
+
       interface ProvisionResponse {
         ok: boolean;
         workspace_id?: string;
