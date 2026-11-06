@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getServerEnv } from "@/lib/server/config/env";
+import { hashCouponCode } from "@/lib/server/coupons/hash";
 
 interface BillingPlanRow {
   id: string;
@@ -20,19 +21,15 @@ interface CouponReserveResult {
   message?: string;
 }
 
-interface CheckoutSessionRow {
-  id: string;
-}
-
 /**
  * AUTHORITATIVE CHECKOUT INITIALIZATION (`POST /api/billing/checkout`)
- * Closes Audit Findings: B-01, B-16 (05_BILLING_ENTITLEMENTS_COUPONS.md §5)
+ * Closes Audit Findings: B-01, B-16, F-04, F-05 (05_BILLING_ENTITLEMENTS_COUPONS.md §5)
  *
  * Rules:
- * 1. Must be authenticated workspace owner.
+ * 1. Must be authenticated workspace owner or admin.
  * 2. Loads authoritative prices from `billing_plans` (never trusts client prices).
- * 3. Reserves coupon via atomic `reserve_coupon_for_checkout` RPC.
- * 4. Creates `public.checkout_sessions` record.
+ * 3. Reserves coupon via atomic `reserve_coupon_for_checkout` RPC using unified `hashCouponCode`.
+ * 4. Generates `checkout_session_id` up-front and attaches it to Razorpay order `notes`.
  * 5. Returns Razorpay order parameters.
  */
 export async function POST(request: NextRequest) {
@@ -117,14 +114,11 @@ export async function POST(request: NextRequest) {
     const idempotencyKey =
       request.headers.get("idempotency-key") ||
       `cs_${Date.now()}_${crypto.randomBytes(8).toString("hex")}`;
+    const checkoutSessionId = crypto.randomUUID();
 
-    // Apply coupon reservation if supplied
+    // Apply coupon reservation if supplied using unified hash contract (F-05)
     if (rawCoupon) {
-      const pepper = env.COUPON_HASH_PEPPER || "biolio_coupon_pepper_2026";
-      const pepperedCode = crypto
-        .createHmac("sha256", pepper)
-        .update(rawCoupon)
-        .digest("hex");
+      const codeHash = hashCouponCode(rawCoupon);
 
       const { data: reserveRes, error: rpcErr } = await (
         adminDb.rpc as unknown as (
@@ -137,7 +131,7 @@ export async function POST(request: NextRequest) {
           p_workspace_id: workspaceId,
           p_user_id: user.id,
           p_user_email: user.email || "",
-          p_raw_code: pepperedCode,
+          p_raw_code: codeHash,
           p_plan_id: planId,
           p_plan_version: planVersion,
           p_billing_interval: billingInterval,
@@ -183,6 +177,7 @@ export async function POST(request: NextRequest) {
             currency: plan.currency || "INR",
             receipt: idempotencyKey.slice(0, 40),
             notes: {
+              checkout_session_id: checkoutSessionId,
               workspace_id: workspaceId,
               plan_id: planId,
               plan_version: String(planVersion),
@@ -199,37 +194,31 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch {
-        // Fallback to internal order ID if Razorpay sandbox network is unreachable
+        // Fallback for offline dev
       }
     }
 
-    // Record checkout_session
-    const { data: sessionRow, error: sessionErr } = await (
+    // Record authoritative checkout_session row
+    const { error: sessionErr } = await (
       adminDb.from("checkout_sessions" as never) as unknown as {
-        insert: (row: Record<string, unknown>) => {
-          select: (cols: string) => {
-            single: () => Promise<{ data: CheckoutSessionRow | null; error: unknown }>;
-          };
-        };
+        insert: (row: Record<string, unknown>) => Promise<{ error: unknown }>;
       }
-    )
-      .insert({
-        workspace_id: workspaceId,
-        user_id: user.id,
-        plan_id: planId,
-        plan_version: planVersion,
-        billing_interval: billingInterval,
-        amount_minor: finalMinor,
-        currency: plan.currency || "INR",
-        idempotency_key: idempotencyKey,
-        razorpay_order_id: razorpayOrderId,
-        coupon_redemption_id: redemptionId,
-        status: "pending",
-      })
-      .select("id")
-      .single();
+    ).insert({
+      id: checkoutSessionId,
+      workspace_id: workspaceId,
+      user_id: user.id,
+      plan_id: planId,
+      plan_version: planVersion,
+      billing_interval: billingInterval,
+      amount_minor: finalMinor,
+      currency: plan.currency || "INR",
+      idempotency_key: idempotencyKey,
+      razorpay_order_id: razorpayOrderId,
+      coupon_redemption_id: redemptionId,
+      status: "pending",
+    });
 
-    if (sessionErr || !sessionRow) {
+    if (sessionErr) {
       return NextResponse.json(
         { error: { code: "INTERNAL_ERROR", message: "Failed to create checkout session." } },
         { status: 500, headers: { "Cache-Control": "no-store" } }
@@ -238,11 +227,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      checkoutSessionId: sessionRow.id,
-      razorpayOrderId: razorpayOrderId || sessionRow.id,
+      checkoutSessionId,
+      razorpayOrderId: razorpayOrderId || checkoutSessionId,
       amountMinor: finalMinor,
       currency: plan.currency || "INR",
-      keyId: env.RAZORPAY_KEY_ID || "rzp_test_public_key",
+      keyId: env.RAZORPAY_KEY_ID || "",
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Checkout initialization failed.";

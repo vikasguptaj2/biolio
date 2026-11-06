@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Clock, Calendar } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { BIOLIO_TEMPLATES } from "@/lib/design-tokens";
+import { sanitizeHtml } from "@/lib/server/sanitize/html";
 
 interface PageProps {
   params: Promise<{ handle: string; slug: string }>;
@@ -200,7 +201,7 @@ async function BlogPostContent({ params }: PageProps) {
           style={{ fontFamily: theme.fontBody }}
         >
           {post.sanitized_html ? (
-            <div dangerouslySetInnerHTML={{ __html: post.sanitized_html }} />
+            <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(post.sanitized_html) }} />
           ) : post.excerpt ? (
             <p className="text-sm sm:text-base leading-relaxed">{post.excerpt}</p>
           ) : (

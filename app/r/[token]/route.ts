@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { recordAnalyticsEvent } from "@/lib/server/analytics/record";
 
 interface LinkRow {
   id: string;
@@ -15,12 +16,13 @@ interface EntitlementRow {
 
 /**
  * SAFE OUTBOUND TRACKED REDIRECT ROUTE (`GET /r/[token]`)
- * Closes Audit Findings: B-07, B-22
+ * Closes Audit Findings: B-07, B-22, F-10 (02_ARCHITECTURE.md §4, DATABASE.md §7)
  *
  * Rules:
  * 1. Checks `opaque_token` existence and `is_visible: true`.
  * 2. Validates destination protocol strictly against allowlist (prevents open redirects and javascript: / data: URI attacks).
  * 3. Enforces Layer 4 Module Lock (`bio_state !== 'locked'`).
+ * 4. Records tracked click event in `public.analytics_events` before issuing 302 redirect.
  */
 function isSafeDestinationUrl(rawUrl: string): boolean {
   try {
@@ -32,7 +34,7 @@ function isSafeDestinationUrl(rawUrl: string): boolean {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
@@ -81,6 +83,15 @@ export async function GET(
     if (ent?.bio_state === "locked") {
       return new NextResponse("Not Found", { status: 404 });
     }
+
+    // Record tracked click in analytics_events (F-10)
+    await recordAnalyticsEvent({
+      workspaceId: link.workspace_id,
+      bioProfileId: link.bio_profile_id,
+      eventType: "bio.link_click",
+      linkId: link.id,
+      headers: request.headers,
+    });
 
     const res = NextResponse.redirect(link.url, { status: 302 });
     res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");

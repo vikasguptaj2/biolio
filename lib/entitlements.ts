@@ -12,6 +12,8 @@ export interface EvaluatedWorkspaceEntitlements {
   isAutomationProductLocked: boolean;
   bioLockReason?: string;
   automationLockReason?: string;
+  bioState?: string;
+  igState?: string;
 
   // Bio Studio Tier & Limits
   bioTier: PlanTier;
@@ -146,6 +148,8 @@ export function evaluateWorkspaceEntitlements(
     isAutomationProductLocked,
     bioLockReason,
     automationLockReason,
+    bioState: (ent.bio_state as string) || (isBioProductLocked ? "locked" : "starter"),
+    igState: (ent.ig_state as string) || (isAutomationProductLocked ? "locked" : "starter"),
     bioTier,
     bioMaxLinks,
     bioMaxGalleryItems,

@@ -1,10 +1,12 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import Link from "next/link";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/server";
 import { BIO_TEMPLATES } from "@/lib/design-tokens";
 import { PublicContactForm } from "@/components/bio/public-contact-form";
+import { recordAnalyticsEvent } from "@/lib/server/analytics/record";
 import {
   MapPin,
   ArrowUpRight,
@@ -207,6 +209,16 @@ async function CreatorBioContent({
     snapshotPayload.contact_form_enabled ??
     profileSummary?.contact_form_enabled ??
     true;
+
+  if (workspaceId) {
+    const headerList = await headers();
+    recordAnalyticsEvent({
+      workspaceId,
+      bioProfileId: profile?.id || null,
+      eventType: "bio.page_view",
+      headers: headerList,
+    }).catch(() => {});
+  }
 
   // Read links, gallery, collaborations, and blog_posts directly from snapshot_payload first
   // so anonymous visitors never hit RLS blocks on draft tables!

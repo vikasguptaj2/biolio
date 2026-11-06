@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { createPublicClient } from "@/lib/supabase/public";
 
+/**
+ * PRODUCTION READINESS PROBE (`GET /api/ready`)
+ * Closes Finding: F-19
+ *
+ * Checks database connectivity using public readable catalog table (`bio_templates`).
+ * Returns 200 with latencyMs if database responds, or 503 if unavailable.
+ */
 export async function GET() {
   const start = Date.now();
   try {
     const pub = createPublicClient();
     const { error } = await pub
-      .from("feature_flags")
-      .select("key")
+      .from("bio_templates")
+      .select("id")
       .limit(1);
 
     if (error) {
@@ -28,4 +35,3 @@ export async function GET() {
     );
   }
 }
-

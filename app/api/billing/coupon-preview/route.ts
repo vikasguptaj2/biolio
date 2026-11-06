@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getServerEnv } from "@/lib/server/config/env";
+import { hashCouponCode } from "@/lib/server/coupons/hash";
 
 interface PlanRow {
   price_monthly_minor: number;
@@ -20,11 +19,11 @@ interface CouponPreviewResult {
 
 /**
  * ATOMIC COUPON PREVIEW ENDPOINT (`POST /api/billing/coupon-preview`)
- * Closes Audit Findings: B-01, B-16
+ * Closes Audit Findings: B-01, B-16, F-05
  *
  * Rules:
  * - Requires authenticated workspace member.
- * - Computes HMAC SHA-256 peppered hash on server before invoking preview RPC.
+ * - Uses authoritative hash from `lib/server/coupons/hash.ts` before calling preview RPC.
  * - Never leaks internal DB error details.
  */
 export async function POST(request: NextRequest) {
@@ -107,12 +106,7 @@ export async function POST(request: NextRequest) {
         ? plan.price_annual_minor
         : plan.price_monthly_minor;
 
-    const env = getServerEnv();
-    const pepper = env.COUPON_HASH_PEPPER || "biolio_coupon_pepper_2026";
-    const pepperedCode = crypto
-      .createHmac("sha256", pepper)
-      .update(rawCode)
-      .digest("hex");
+    const codeHash = hashCouponCode(rawCode);
 
     const { data: previewRes, error: rpcErr } = await (
       adminDb.rpc as unknown as (
@@ -124,7 +118,7 @@ export async function POST(request: NextRequest) {
       {
         p_workspace_id: workspaceId,
         p_user_email: user.email || "",
-        p_raw_code: pepperedCode,
+        p_raw_code: codeHash,
         p_plan_id: planId,
         p_plan_version: planVersion,
         p_billing_interval: billingInterval,

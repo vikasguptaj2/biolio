@@ -41,12 +41,17 @@ export function MarketingFooter() {
               </li>
               <li>
                 <Link href="/templates" className="hover:text-[#ff946f] transition-colors">
-                  Design Templates (6 Seeded)
+                  Design Templates (17 Curated)
                 </Link>
               </li>
               <li>
                 <Link href="/pricing" className="hover:text-[#ff946f] transition-colors">
-                  Modular Plans & Pricing
+                  Modular Plans &amp; Pricing
+                </Link>
+              </li>
+              <li>
+                <Link href="/faq" className="hover:text-[#ff946f] transition-colors">
+                  Frequently Asked Questions
                 </Link>
               </li>
             </ul>
@@ -66,6 +71,16 @@ export function MarketingFooter() {
               <li>
                 <Link href="/signup" className="hover:text-[#ff946f] transition-colors">
                   Claim Reserved Handle
+                </Link>
+              </li>
+              <li>
+                <Link href="/contact" className="hover:text-[#ff946f] transition-colors">
+                  Contact &amp; Support
+                </Link>
+              </li>
+              <li>
+                <Link href="/refunds" className="hover:text-[#ff946f] transition-colors">
+                  Refund &amp; Cancellation Policy
                 </Link>
               </li>
               <li>
@@ -105,9 +120,18 @@ export function MarketingFooter() {
         <div className="pt-8 border-t border-[#342b3d] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#7c727e]">
           <div>&copy; 2026 Biolio Technologies Inc. All rights reserved.</div>
           <div className="flex gap-6">
-            <span className="hover:text-[#b9aebb] cursor-pointer">Privacy Policy</span>
-            <span className="hover:text-[#b9aebb] cursor-pointer">Terms of Service</span>
-            <span className="hover:text-[#b9aebb] cursor-pointer">Security Policy</span>
+            <Link href="/privacy" className="hover:text-[#b9aebb]">
+              Privacy Policy
+            </Link>
+            <Link href="/terms" className="hover:text-[#b9aebb]">
+              Terms of Service
+            </Link>
+            <Link href="/refunds" className="hover:text-[#b9aebb]">
+              Refunds Policy
+            </Link>
+            <Link href="/contact" className="hover:text-[#b9aebb]">
+              Contact
+            </Link>
           </div>
         </div>
       </div>

@@ -156,3 +156,37 @@ test("B-25: Every top-level static route directory under app/ is reserved in SQL
     );
   }
 });
+
+test("Enterprise v6: all 17 templates exist in design-tokens.ts and authenticated backend routes are present", () => {
+  const tokensSource = fs.readFileSync(
+    path.join(repoRoot, "lib/design-tokens.ts"),
+    "utf8"
+  );
+  const expectedSlugs = [
+    "sunday-studio",
+    "coastline",
+    "form-function",
+    "atelier-editorial",
+    "soft-focus",
+    "field-notes",
+    "studio-hours",
+    "obsidian-noir",
+    "sage-botanical",
+    "studio-minimal",
+    "sunset-amber",
+    "tokyo-cyber",
+    "monochrome-stark",
+    "terracotta-warmth",
+    "electric-indigo",
+    "brutalist-raw",
+    "velvet-night",
+  ];
+  for (const slug of expectedSlugs) {
+    assert.ok(tokensSource.includes(`id: "${slug}"`), `Missing template slug: ${slug}`);
+  }
+
+  assert.ok(fs.existsSync(path.join(repoRoot, "lib/server/http/guard.ts")), "Missing guard.ts");
+  assert.ok(fs.existsSync(path.join(repoRoot, "app/api/bio/studio/route.ts")), "Missing /api/bio/studio/route.ts");
+  assert.ok(fs.existsSync(path.join(repoRoot, "app/api/automation/workflows/route.ts")), "Missing /api/automation/workflows/route.ts");
+  assert.ok(fs.existsSync(path.join(repoRoot, "app/faq/page.tsx")), "Missing /faq/page.tsx");
+});

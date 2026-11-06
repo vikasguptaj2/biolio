@@ -20,23 +20,31 @@ interface WorkspaceEntitlementRow {
   automation_monthly_actions_used: number;
 }
 
-/**
- * DURABLE WORKER QUEUE DRAIN ENDPOINT (`POST /api/jobs/drain`)
- * Closes Audit Finding: B-16 (02_ARCHITECTURE.md §8)
- *
- * Protected strictly by `x-cron-secret` header verified in constant time against `CRON_SECRET`.
- * Processes queued `automation_executions` while respecting `killswitch.automation_dispatch`
- * and workspace module locks (`ig_state !== 'locked'`).
- */
-export async function POST(request: NextRequest) {
-  const env = getServerEnv();
-  const providedSecret = request.headers.get("x-cron-secret") || "";
+function verifyCronAuth(request: NextRequest, envSecret?: string): boolean {
+  if (!envSecret) return false;
 
-  if (
-    !env.CRON_SECRET ||
-    !providedSecret ||
-    !constantTimeCompare(providedSecret, env.CRON_SECRET)
-  ) {
+  // 1. Check x-cron-secret header
+  const xSecret = request.headers.get("x-cron-secret");
+  if (xSecret && constantTimeCompare(xSecret, envSecret)) {
+    return true;
+  }
+
+  // 2. Check Authorization: Bearer <token> (Used by Vercel Cron)
+  const authHeader = request.headers.get("authorization") || "";
+  if (authHeader.startsWith("Bearer ")) {
+    const token = authHeader.slice(7).trim();
+    if (constantTimeCompare(token, envSecret)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function handleDrain(request: NextRequest) {
+  const env = getServerEnv();
+
+  if (!verifyCronAuth(request, env.CRON_SECRET)) {
     return NextResponse.json(
       { error: { code: "UNAUTHENTICATED", message: "Invalid cron secret." } },
       { status: 401, headers: { "Cache-Control": "no-store" } }
@@ -130,8 +138,9 @@ export async function POST(request: NextRequest) {
           }
         )
           .update({
-            status: "skipped_policy",
-            skip_reason:
+            status: "skipped",
+            failure_category: "policy_check",
+            failure_detail:
               ent?.ig_state === "locked" ? "module_locked" : "quota_exhausted",
             completed_at: new Date().toISOString(),
           })
@@ -163,7 +172,7 @@ export async function POST(request: NextRequest) {
         }
       )
         .update({
-          status: "api_accepted",
+          status: "accepted",
           completed_at: new Date().toISOString(),
         })
         .eq("id", exec.id);
@@ -185,3 +194,16 @@ export async function POST(request: NextRequest) {
   }
 }
 
+/**
+ * Handles GET (Vercel Cron natively sends GET with Authorization: Bearer $CRON_SECRET)
+ */
+export async function GET(request: NextRequest) {
+  return handleDrain(request);
+}
+
+/**
+ * Handles POST (Manual or webhook-triggered drain with x-cron-secret)
+ */
+export async function POST(request: NextRequest) {
+  return handleDrain(request);
+}

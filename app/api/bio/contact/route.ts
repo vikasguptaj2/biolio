@@ -12,13 +12,13 @@ interface PublicBioResult {
 
 /**
  * HARDENED CONTACT FORM SUBMISSION (`POST /api/bio/contact`)
- * Closes Audit Finding: B-18 (03_BIO_COLLABORATIONS_CONTACT.md §7)
+ * Closes Audit Finding: B-18, F-13 (03_BIO_COLLABORATIONS_CONTACT.md §7, DATABASE.md §8)
  *
  * Rules:
  * 1. Server-side handle verification (client never passes workspace_id or bio_profile_id).
  * 2. Honeypot field (`website_url` / `hp_field`) rejection.
- * 3. Hashed IP rate limiting (GDPR compliant).
- * 4. Input sanitization (max 2000 chars, sender email format check).
+ * 3. Hashed IP rate limiting (5 submissions per 15 min per IP hash).
+ * 4. Input sanitization (max 2000 chars, min 5 chars, sender email format check).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -43,6 +43,18 @@ export async function POST(request: NextRequest) {
           error: {
             code: "VALIDATION_ERROR",
             message: "handle, senderName, senderEmail, and message are required.",
+          },
+        },
+        { status: 422 }
+      );
+    }
+
+    if (message.length < 5) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Message must be at least 5 characters.",
           },
         },
         { status: 422 }
@@ -94,6 +106,33 @@ export async function POST(request: NextRequest) {
       .createHmac("sha256", env.VISITOR_HASH_SALT || "biolio_contact_salt")
       .update(clientIp)
       .digest("hex");
+
+    // 3. Enforce rate limiting: max 5 submissions per 15 minutes per IP hash (F-13)
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const { count: recentCount } = await (
+      adminDb.from("bio_contact_submissions" as never) as unknown as {
+        select: (cols: string, opt: { count: string; head: boolean }) => {
+          eq: (col: string, val: string) => {
+            gt: (col2: string, val2: string) => Promise<{ count: number | null }>;
+          };
+        };
+      }
+    )
+      .select("*", { count: "exact", head: true })
+      .eq("rate_limit_key_hmac", ipHash)
+      .gt("created_at", fifteenMinutesAgo);
+
+    if ((recentCount ?? 0) >= 5) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "RATE_LIMITED",
+            message: "Too many contact submissions. Please wait 15 minutes before sending another inquiry.",
+          },
+        },
+        { status: 429, headers: { "Retry-After": "900" } }
+      );
+    }
 
     await (
       adminDb.from("bio_contact_submissions" as never) as unknown as {

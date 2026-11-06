@@ -1,11 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getVerifiedAdminSession } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import crypto from "crypto";
+import { hashCouponCode, maskCouponCode, normalizeCouponCode } from "@/lib/server/coupons/hash";
 
 interface AdminOpsTable {
   insert: (row: Record<string, unknown>) => {
-    select: () => {
+    select: (cols?: string) => {
       single: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
     };
   } & Promise<{ error: { message: string } | null }>;
@@ -29,9 +29,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized Super Admin" }, { status: 401 });
     }
 
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const { action } = body;
     const adminDb = createAdminClient();
+
+    // 2. Mandatory Reason Check for Audit Compliance (B-11, F-03)
+    const reason = String(body.reason || "").trim();
+    if (reason.length < 5) {
+      return NextResponse.json(
+        { error: "A detailed operational reason (minimum 5 characters) is mandatory for all privileged operations." },
+        { status: 422 }
+      );
+    }
 
     // =========================================================================
     // Action 1: Override Workspace Plan & Feature Locks
@@ -57,7 +66,7 @@ export async function POST(request: NextRequest) {
               : planId.startsWith("bundle_")
               ? "bundle"
               : "free"
-          }`,
+          }:${reason}`,
         });
         if (!rpcErr) rpcSuccess = true;
       } catch {
@@ -98,22 +107,22 @@ export async function POST(request: NextRequest) {
         } else if (planId === "ig_creator") {
           scope = "automation_only";
           igTier = "creator";
-          bioMaxLinks = 0;
-          bioMaxGallery = 0;
-          bioMaxBlog = 0;
           autoMaxRules = 10;
           autoQuota = 2500;
           autoPublicReplies = true;
-        } else if (planId === "ig_pro") {
-          scope = "automation_only";
-          igTier = "pro";
           bioMaxLinks = 0;
           bioMaxGallery = 0;
           bioMaxBlog = 0;
+        } else if (planId === "ig_pro") {
+          scope = "automation_only";
+          igTier = "pro";
           autoMaxRules = null;
           autoQuota = 25000;
           autoPublicReplies = true;
-        } else if (planId === "bundle_creator") {
+          bioMaxLinks = 0;
+          bioMaxGallery = 0;
+          bioMaxBlog = 0;
+        } else if (planId === "bundle_creator" || planId === "creator_bundle") {
           scope = "bundle";
           bioTier = "creator";
           igTier = "creator";
@@ -123,7 +132,7 @@ export async function POST(request: NextRequest) {
           autoMaxRules = 10;
           autoQuota = 2500;
           autoPublicReplies = true;
-        } else if (planId === "bundle_pro") {
+        } else if (planId === "bundle_pro" || planId === "enterprise_bundle") {
           scope = "bundle";
           bioTier = "pro";
           igTier = "pro";
@@ -136,6 +145,9 @@ export async function POST(request: NextRequest) {
           autoQuota = 25000;
           autoPublicReplies = true;
         }
+
+        const isBioLocked = scope === "automation_only";
+        const isIgLocked = scope === "bio_only";
 
         await getTable(adminDb, "workspace_entitlements").upsert(
           {
@@ -150,87 +162,123 @@ export async function POST(request: NextRequest) {
             automation_max_active_rules: autoMaxRules,
             automation_monthly_action_quota: autoQuota,
             automation_public_replies_enabled: autoPublicReplies,
-            override_reason: `SUPER_ADMIN_OVERRIDE:${planId}:${scope}`,
+            bio_state: isBioLocked ? "locked" : "paid",
+            ig_state: isIgLocked ? "locked" : "paid",
+            override_reason: `ACTIVE_PLAN:${planId}:${scope}:${reason}`,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "workspace_id" }
         );
       }
 
-      // Record immutable audit log
-      await getTable(adminDb, "admin_audit_logs").insert({
+      // Record immutable audit log (fail-closed)
+      const auditRes = await getTable(adminDb, "admin_audit_logs").insert({
         action: "OVERRIDE_WORKSPACE_PLAN",
         target_type: "workspace",
         target_id: workspaceId,
         actor_role: "super_admin",
-        reason: `Super Admin manually changed plan to ${planId}`,
-        after_summary: { planId },
+        reason,
+        after_summary: { planId, reason },
         result_status: "SUCCESS",
       });
+
+      if (auditRes.error) {
+        return NextResponse.json({ error: "Audit write failure; action aborted." }, { status: 500 });
+      }
 
       return NextResponse.json({ success: true, workspaceId, planId });
     }
 
     // =========================================================================
-    // Action 2: Toggle Workspace Status (Active / Suspended)
+    // Action 2: Update Workspace Operational Status
     // =========================================================================
-    if (action === "toggle_status") {
+    if (action === "set_workspace_status") {
       const { workspaceId, status } = body;
+      if (!workspaceId || !status) {
+        return NextResponse.json({ error: "workspaceId and status required" }, { status: 400 });
+      }
+
+      const validStatuses = ["active", "suspended", "past_due", "closed_anonymized"];
+      if (!validStatuses.includes(status)) {
+        return NextResponse.json({ error: "Invalid status value" }, { status: 400 });
+      }
+
       await getTable(adminDb, "workspaces")
-        .update({ status })
+        .update({
+          status,
+          suspended_reason: status === "suspended" ? reason : null,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", workspaceId);
 
-      await getTable(adminDb, "admin_audit_logs").insert({
-        action: "TOGGLE_WORKSPACE_STATUS",
+      const auditRes = await getTable(adminDb, "admin_audit_logs").insert({
+        action: "SET_WORKSPACE_STATUS",
         target_type: "workspace",
         target_id: workspaceId,
         actor_role: "super_admin",
-        reason: `Super Admin updated workspace status to ${status}`,
-        after_summary: { status },
+        reason,
+        after_summary: { status, reason },
         result_status: "SUCCESS",
       });
+
+      if (auditRes.error) {
+        return NextResponse.json({ error: "Audit write failure; action aborted." }, { status: 500 });
+      }
 
       return NextResponse.json({ success: true, workspaceId, status });
     }
 
     // =========================================================================
-    // Action 3: Toggle Operational Feature Flag / Killswitch
+    // Action 3: Toggle Killswitch / Feature Flag
     // =========================================================================
     if (action === "toggle_flag") {
       const { flagKey, isEnabled } = body;
+      if (!flagKey || typeof isEnabled !== "boolean") {
+        return NextResponse.json({ error: "flagKey and boolean isEnabled required" }, { status: 400 });
+      }
+
       await getTable(adminDb, "feature_flags")
         .update({ is_enabled: isEnabled, updated_at: new Date().toISOString() })
         .eq("key", flagKey);
 
-      await getTable(adminDb, "admin_audit_logs").insert({
+      const auditRes = await getTable(adminDb, "admin_audit_logs").insert({
         action: "TOGGLE_FEATURE_FLAG",
         target_type: "feature_flag",
         target_id: flagKey,
         actor_role: "super_admin",
-        reason: `Super Admin toggled ${flagKey} to ${isEnabled}`,
-        after_summary: { flagKey, isEnabled },
+        reason,
+        after_summary: { flagKey, isEnabled, reason },
         result_status: "SUCCESS",
       });
+
+      if (auditRes.error) {
+        return NextResponse.json({ error: "Audit write failure; action aborted." }, { status: 500 });
+      }
 
       return NextResponse.json({ success: true, flagKey, isEnabled });
     }
 
     // =========================================================================
-    // Action 4: Create Dynamic Promotional Campaign & Codes
+    // Action 4: Create Dynamic Promotional Campaign & Codes (Unified Hash)
     // =========================================================================
     if (action === "create_coupon") {
       const { code, discountType, discountValue, scope, maxRedemptions, expiryDays } = body;
-      const cleanCode = String(code).trim().toUpperCase();
-      const codeHash = crypto.createHash("sha256").update(cleanCode).digest("hex");
+      const cleanCode = normalizeCouponCode(String(code));
+      if (!cleanCode || cleanCode.length < 3) {
+        return NextResponse.json({ error: "Coupon code must be at least 3 characters." }, { status: 400 });
+      }
+
+      const codeHash = hashCouponCode(cleanCode);
+      const maskedPreview = maskCouponCode(cleanCode);
       const expiresAt = new Date(Date.now() + (Number(expiryDays) || 30) * 86400000).toISOString();
 
       // Insert Promotion
       const { data: promo, error: promoErr } = await getTable(adminDb, "promotions")
         .insert({
           name: `Campaign ${cleanCode}`,
-          description: `Dynamic Campaign ${cleanCode} (${discountValue}${discountType === "percentage" ? "%" : " USD"})`,
-          discount_type: discountType || "percentage",
-          discount_value: Number(discountValue) || 25,
+          description: `Dynamic Campaign ${cleanCode} (${discountValue}${discountType === "percentage" ? "%" : " off"})`,
+          discount_type: discountType === "fixed_amount" ? "fixed_amount" : "percentage",
+          discount_value: Number(discountValue) || 20,
           scope_type: scope || "any",
           max_redemptions_total: Number(maxRedemptions) || 100,
           is_active: true,
@@ -255,27 +303,31 @@ export async function POST(request: NextRequest) {
         .select()
         .single();
 
-      // Insert Hashed Master Code
+      // Insert Hashed Master Code using Unified HMAC-SHA256 Hash
       await getTable(adminDb, "coupon_codes").insert({
         promotion_id: promo.id,
         batch_id: batch?.id || null,
         code_hash: codeHash,
-        code_masked_preview: `${cleanCode.slice(0, 3)}***`,
+        code_masked_preview: maskedPreview,
         max_redemptions: Number(maxRedemptions) || 100,
         is_active: true,
         is_public_master_code: true,
         expires_at: expiresAt,
       });
 
-      await getTable(adminDb, "admin_audit_logs").insert({
+      const auditRes = await getTable(adminDb, "admin_audit_logs").insert({
         action: "CREATE_COUPON_CAMPAIGN",
         target_type: "promotion",
         target_id: String(promo.id),
         actor_role: "super_admin",
-        reason: `Created dynamic coupon ${cleanCode}`,
-        after_summary: { code: cleanCode, discountType, discountValue, scope },
+        reason,
+        after_summary: { code: maskedPreview, discountType, discountValue, scope, reason },
         result_status: "SUCCESS",
       });
+
+      if (auditRes.error) {
+        return NextResponse.json({ error: "Audit write failure; action aborted." }, { status: 500 });
+      }
 
       return NextResponse.json({ success: true, code: cleanCode, promotionId: promo.id });
     }

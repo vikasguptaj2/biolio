@@ -1,170 +1,291 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowUpRight, Eye, X, Sparkles, Check } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing/header";
 import { MarketingFooter } from "@/components/marketing/footer";
-import { BIOLIO_TEMPLATES } from "@/lib/design-tokens";
+import {
+  BIO_TEMPLATES,
+  type BiolioTemplateConfig,
+} from "@/lib/design-tokens";
 
 export default function TemplatesPage() {
-  const [activeFilter, setActiveFilter] = useState("all");
+  const [activeFilter, setActiveFilter] = useState<string>("all");
+  const [previewTemplate, setPreviewTemplate] =
+    useState<BiolioTemplateConfig | null>(null);
 
   const categories = [
-    { id: "all", label: "All Templates" },
-    { id: "editorial", label: "Editorial & Fashion" },
+    { id: "all", label: `All Templates (${BIO_TEMPLATES.length})` },
+    { id: "editorial", label: "Editorial & Story" },
     { id: "dark", label: "Dark & Luxury" },
-    { id: "wellness", label: "Clean & Organic" },
-    { id: "minimal", label: "Minimalist" },
+    { id: "wellness", label: "Coastal & Organic" },
+    { id: "minimal", label: "Architectural & Minimal" },
   ];
 
-  const templatesList = Object.values(BIOLIO_TEMPLATES);
-
-  const filteredTemplates = templatesList.filter((t) => {
+  const filteredTemplates = BIO_TEMPLATES.filter((t) => {
     if (activeFilter === "all") return true;
-    if (activeFilter === "editorial") return t.id === "atelier-editorial" || t.id === "sunset-amber";
-    if (activeFilter === "dark") return t.id === "obsidian-noir" || t.id === "tokyo-cyber";
-    if (activeFilter === "wellness") return t.id === "sage-botanical";
-    if (activeFilter === "minimal") return t.id === "studio-minimal";
-    return true;
+    return t.filterGroup === activeFilter;
   });
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f4efe7] text-[#211b29]">
+    <div className="min-h-screen flex flex-col bg-[#fbf8f2] text-[#211b29]">
       <MarketingHeader />
 
-      <main className="flex-1 py-16 lg:py-24">
-        <div className="mx-auto max-w-7xl px-6 lg:px-12">
-          {/* Header */}
-          <div className="text-center max-w-2xl mx-auto mb-12">
-            <span className="text-xs font-bold uppercase tracking-widest text-[#f36b3f] mb-2 block">
-              Curated Design System
-            </span>
-            <h1 className="font-editorial text-4xl sm:text-5xl font-semibold text-[#211b29] mb-4">
-              Templates designed like magazine covers.
+      <main className="flex-1">
+        {/* Hero Header */}
+        <section className="bg-[#f2eae1] py-20 border-b border-[#e5dcd1]">
+          <div className="mx-auto max-w-7xl px-6 lg:px-12">
+            <div className="text-[10px] font-extrabold uppercase tracking-[2px] text-[#bd5636] mb-4">
+              THE BIOLIO TEMPLATE COLLECTION &bull; 17 CURATED EDITIONS
+            </div>
+            <h1 className="font-editorial text-5xl sm:text-6xl font-semibold text-[#271f2b] max-w-3xl leading-[1.02]">
+              A good first draft <br />
+              <em className="font-normal italic text-[#f36b3f]">
+                for your online world.
+              </em>
             </h1>
-            <p className="text-sm sm:text-base text-[#7c727e]">
-              Every template is powered by typography pairings and responsive container tokens. Fully customizable in your bio studio.
+            <p className="mt-5 text-sm sm:text-base text-[#776d79] max-w-xl leading-relaxed">
+              Choose a visual starting point from our 17 seeded templates—including Sunday Studio, Coastline, Form &amp; Function, Atelier Editorial, and Obsidian Noir. Switch anytime without losing content.
             </p>
-          </div>
 
-          {/* Category Filter Pills */}
-          <div className="flex items-center justify-center gap-2 mb-12 flex-wrap">
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveFilter(cat.id)}
-                className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
-                  activeFilter === cat.id
-                    ? "bg-[#211b29] text-white shadow-sm"
-                    : "bg-[#fffdf8] text-[#7c727e] border border-[#e5dcd1] hover:text-[#211b29]"
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Templates Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {filteredTemplates.map((template) => (
-              <div
-                key={template.id}
-                className="rounded-2xl border border-[#e5dcd1] bg-[#fffdf8] overflow-hidden shadow-xs hover:shadow-xl transition-all group flex flex-col justify-between"
-              >
-                {/* Visual Preview Box */}
-                <div
-                  className="p-8 min-h-[260px] flex flex-col items-center justify-center border-b transition-colors relative"
-                  style={{
-                    backgroundColor: template.theme.bg,
-                    borderColor: template.theme.border,
-                  }}
+            {/* Filter Pills */}
+            <div className="mt-8 flex flex-wrap gap-2">
+              {categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setActiveFilter(cat.id)}
+                  className={`rounded-full px-4 py-2 text-xs font-extrabold transition-all cursor-pointer ${
+                    activeFilter === cat.id
+                      ? "bg-[#211b29] text-white shadow-sm"
+                      : "bg-[#fffdf8] text-[#6e6370] border border-[#ded4ca] hover:text-[#211b29]"
+                  }`}
                 >
-                  {/* Miniature Avatar */}
-                  <div
-                    className="h-16 w-16 mb-4 flex items-center justify-center text-xl font-bold shadow-md"
-                    style={{
-                      borderRadius: template.theme.avatarRadius,
-                      backgroundColor: template.theme.cardBg,
-                      color: template.theme.text,
-                      border: `2px solid ${template.theme.border}`,
-                      fontFamily: template.theme.fontHeading,
-                    }}
-                  >
-                    B
-                  </div>
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
 
-                  {/* Title & Subtitle */}
+        {/* All 17 Templates Grid */}
+        <section className="py-16 mx-auto max-w-7xl px-6 lg:px-12">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredTemplates.map((tpl) => (
+              <article
+                key={tpl.id}
+                className="group rounded-[7px] border border-[#e4dbd0] bg-[#fffdf8] p-3.5 shadow-xs hover:shadow-xl transition-all flex flex-col justify-between"
+              >
+                <div>
+                  {/* Editorial Photo + Live Token Mini Card */}
                   <div
-                    className="text-center font-bold text-base mb-1"
+                    className="relative h-60 w-full rounded-[5px] overflow-hidden border"
                     style={{
-                      color: template.theme.text,
-                      fontFamily: template.theme.fontHeading,
+                      backgroundColor: tpl.theme.bg,
+                      borderColor: tpl.theme.border,
                     }}
                   >
-                    {template.name}
-                  </div>
-                  <div
-                    className="text-[11px] text-center mb-4 max-w-[200px]"
-                    style={{
-                      color: template.theme.mutedText,
-                      fontFamily: template.theme.fontBody,
-                    }}
-                  >
-                    {template.category}
-                  </div>
+                    <img
+                      src={tpl.previewImage}
+                      alt={tpl.name}
+                      className="h-32 w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      loading="lazy"
+                    />
+                    <div className="p-4 flex flex-col items-center text-center -mt-7 relative z-10">
+                      <div
+                        className="h-12 w-12 flex items-center justify-center font-editorial font-bold text-sm shadow-md border-2 border-white"
+                        style={{
+                          backgroundColor: tpl.theme.accent,
+                          color: "#ffffff",
+                          borderRadius: tpl.theme.avatarRadius,
+                        }}
+                      >
+                        AM
+                      </div>
+                      <div
+                        className="mt-2 font-editorial font-bold text-base"
+                        style={{ color: tpl.theme.text }}
+                      >
+                        Alex Morgan
+                      </div>
+                      <div
+                        className="mt-2 w-full max-w-[200px] py-1.5 px-3 text-[10px] font-extrabold truncate shadow-2xs"
+                        style={{
+                          backgroundColor: tpl.theme.buttonBg,
+                          color: tpl.theme.buttonText,
+                          borderRadius: tpl.theme.cardRadius,
+                        }}
+                      >
+                        Explore Portfolio ↗
+                      </div>
+                    </div>
 
-                  {/* Sample Link Button */}
-                  <div
-                    className="w-full max-w-[210px] py-2.5 px-3 text-center text-xs font-bold shadow-xs transition-transform group-hover:scale-105"
-                    style={{
-                      backgroundColor: template.theme.buttonBg,
-                      color: template.theme.buttonText,
-                      borderRadius: template.theme.cardRadius,
-                      fontFamily: template.theme.fontBody,
-                    }}
-                  >
-                    View Latest Editorial
-                  </div>
-                </div>
-
-                {/* Details Card */}
-                <div className="p-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-editorial text-2xl font-bold text-[#211b29]">
-                      {template.name}
-                    </h3>
-                    <span className="text-[10px] font-mono font-bold uppercase bg-[#f4efe7] text-[#7c727e] px-2 py-0.5 rounded">
-                      {template.id}
+                    <span className="absolute top-2.5 right-2.5 rounded bg-[#211b29]/85 backdrop-blur-xs px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-white">
+                      {tpl.minTier}
                     </span>
                   </div>
 
-                  <p className="text-xs text-[#7c727e] leading-relaxed mb-6">
-                    {template.description}
-                  </p>
-
-                  <div className="pt-4 border-t border-[#eee6dc] flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#277a67]">
-                      <Check className="h-3.5 w-3.5" />
-                      Free with all plans
+                  {/* Metadata */}
+                  <div className="pt-4 px-1">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-editorial text-xl font-semibold text-[#211b29]">
+                        {tpl.name}
+                      </h3>
+                      <span className="text-[10px] font-bold text-[#877c85]">
+                        {tpl.category}
+                      </span>
                     </div>
-                    <Link
-                      href={`/signup?template=${template.id}`}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-[#f36b3f] px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#ee7048] transition-colors"
-                    >
-                      Use Template
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </Link>
+                    <p className="mt-1.5 text-xs text-[#7c727e] leading-relaxed">
+                      {tpl.description}
+                    </p>
                   </div>
                 </div>
-              </div>
+
+                {/* Actions */}
+                <div className="mt-5 pt-3 border-t border-[#eee6dc] flex items-center justify-between gap-2 px-1">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTemplate(tpl)}
+                    className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#bb5735] hover:text-[#f36b3f] cursor-pointer"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    Preview template
+                  </button>
+                  <Link
+                    href={`/signup?template=${encodeURIComponent(tpl.id)}`}
+                    className="inline-flex items-center gap-1 rounded-[5px] bg-[#211b29] px-3.5 py-2 text-[11px] font-extrabold text-white hover:bg-[#3a3040]"
+                  >
+                    Use template
+                    <ArrowUpRight className="h-3.5 w-3.5 text-[#f36b3f]" />
+                  </Link>
+                </div>
+              </article>
             ))}
           </div>
-        </div>
+        </section>
       </main>
+
+      {/* Interactive Live Phone Modal Preview */}
+      {previewTemplate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#211b29]/75 backdrop-blur-xs p-4"
+          onClick={() => setPreviewTemplate(null)}
+        >
+          <div
+            className="w-full max-w-3xl rounded-2xl border border-[#e5dcd1] bg-[#fffdf8] p-6 md:p-8 shadow-2xl grid grid-cols-1 md:grid-cols-12 gap-8 items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Mobile Frame */}
+            <div className="md:col-span-6 flex justify-center">
+              <div
+                className="w-[270px] rounded-[28px] border-[6px] border-[#211b29] p-4 shadow-2xl space-y-3"
+                style={{
+                  backgroundColor: previewTemplate.theme.bg,
+                  color: previewTemplate.theme.text,
+                }}
+              >
+                <div className="mx-auto h-3 w-20 rounded-b-lg bg-[#211b29] -mt-4 mb-2" />
+                <div className="text-center space-y-1.5">
+                  <img
+                    src={previewTemplate.previewImage}
+                    alt={previewTemplate.name}
+                    className="h-16 w-16 mx-auto object-cover border-2 border-white shadow"
+                    style={{
+                      borderRadius: previewTemplate.theme.avatarRadius,
+                    }}
+                  />
+                  <div className="font-editorial text-lg font-bold">
+                    Alex Morgan
+                  </div>
+                  <div
+                    className="text-[10px]"
+                    style={{ color: previewTemplate.theme.mutedText }}
+                  >
+                    Photographer · Visual Storyteller
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  {[
+                    "✦ Explore my latest work",
+                    "▶ Watch visual diaries",
+                    "◈ Brand collaborations",
+                    "✉ Work with me",
+                  ].map((item, i) => (
+                    <div
+                      key={i}
+                      className="px-3 py-2.5 text-[10px] font-bold flex items-center justify-between border"
+                      style={{
+                        backgroundColor: previewTemplate.theme.cardBg,
+                        color: previewTemplate.theme.text,
+                        borderColor: previewTemplate.theme.border,
+                        borderRadius: previewTemplate.theme.cardRadius,
+                      }}
+                    >
+                      <span>{item}</span>
+                      <span>↗</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Template Details */}
+            <div className="md:col-span-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-1 rounded bg-[#fce8df] px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-[#b74f2e]">
+                  <Sparkles className="h-3 w-3" /> {previewTemplate.category}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreviewTemplate(null)}
+                  className="rounded-lg border border-[#e5dcd1] p-1.5 text-[#7c727e] hover:text-[#211b29] cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <h2 className="font-editorial text-3xl font-semibold text-[#211b29]">
+                {previewTemplate.name}
+              </h2>
+              <p className="text-xs text-[#7c727e] leading-relaxed">
+                {previewTemplate.description}
+              </p>
+
+              <ul className="space-y-2 text-xs text-[#5f5661] pt-2">
+                <li className="flex items-center gap-2">
+                  <Check className="h-4 w-4 text-[#277a67]" />
+                  Includes Hero, Links, Portfolio Gallery, Collaborations &amp; Blog
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="h-4 w-4 text-[#277a67]" />
+                  Responsive mobile-first layout &amp; SEO metadata
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="h-4 w-4 text-[#277a67]" />
+                  Minimum Tier:{" "}
+                  <strong className="uppercase">{previewTemplate.minTier}</strong>
+                </li>
+              </ul>
+
+              <div className="pt-4 flex gap-3">
+                <Link
+                  href={`/signup?template=${encodeURIComponent(
+                    previewTemplate.id
+                  )}`}
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-[5px] bg-[#f36b3f] py-3 px-4 text-xs font-extrabold text-white shadow-md hover:bg-[#e55f34]"
+                >
+                  Start with {previewTemplate.name} ↗
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <MarketingFooter />
     </div>
   );
 }
-

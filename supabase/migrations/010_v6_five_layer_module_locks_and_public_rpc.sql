@@ -381,7 +381,22 @@ GRANT EXECUTE ON FUNCTION public.public_get_bio(TEXT) TO anon, authenticated, se
 -- =============================================================================
 INSERT INTO public.reserved_handles (handle, reason)
 VALUES
+  ('admin', 'system_route'),
+  ('api', 'system_route'),
+  ('auth', 'system_route'),
+  ('automation', 'system_route'),
+  ('bio', 'system_route'),
+  ('dashboard', 'system_route'),
+  ('onboarding', 'system_route'),
+  ('pricing', 'system_route'),
+  ('signin', 'system_route'),
+  ('signup', 'system_route'),
+  ('templates', 'system_route'),
   ('r', 'system_route'),
+  ('privacy', 'system_route'),
+  ('terms', 'system_route'),
+  ('refunds', 'system_route'),
+  ('contact', 'system_route'),
   ('forgot-password', 'system_route'),
   ('reset-password', 'system_route'),
   ('l', 'system_route'),

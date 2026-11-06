@@ -1,6 +1,7 @@
 /**
  * Biolio Atelier Edition Design System Tokens & Brand Configurations
- * Rooted in the editorial aesthetic: Ink (#211B29), Tangerine (#F36B3F), Warm White (#FFF9F2), Lilac (#C9B5F4)
+ * Rooted in the Atelier Concept 03 Editorial aesthetic:
+ * Ink (#211B29), Tangerine (#F36B3F), Warm Paper (#FFFDF8), Canvas (#F4EFE7), Lilac (#C9B5F4), Emerald (#277A67)
  */
 
 export const BRAND = {
@@ -16,7 +17,7 @@ export const BRAND = {
     warm: "#fff9f2",
     line: "#e5dcd1",
     line2: "#eee6dc",
-    orange: "#f36b3f", // Tangerine brand accent
+    orange: "#f36b3f",
     orange2: "#ff946f",
     soft: "#fce8df",
     lilac: "#c9b5f4",
@@ -38,7 +39,9 @@ export interface BiolioTemplateConfig {
   name: string;
   description: string;
   category: string;
+  filterGroup: "editorial" | "dark" | "wellness" | "minimal";
   minTier: "free" | "creator" | "pro";
+  previewImage: string;
   tokens: {
     bg: string;
     surface: string;
@@ -64,13 +67,115 @@ export interface BiolioTemplateConfig {
   };
 }
 
+/**
+ * Complete Catalog of All 17 Seeded Biolio Templates
+ * (Preserves all 12 custom templates + all 5 classic HTML prototype templates)
+ */
 export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
+  {
+    id: "sunday-studio",
+    name: "Sunday Studio",
+    description: "Quiet, editorial and personal. Breezy coastal neutrals, soft linen textures, and sunlit clarity.",
+    category: "Editorial · Creator",
+    filterGroup: "editorial",
+    minTier: "free",
+    previewImage: "https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?w=700&q=85",
+    tokens: {
+      bg: "#faf8f5",
+      surface: "#ffffff",
+      ink: "#232323",
+      accent: "#997027",
+      fontDisplay: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "linen-pill",
+    },
+    theme: {
+      bg: "#faf8f5",
+      cardBg: "#ffffff",
+      text: "#232323",
+      mutedText: "#777777",
+      accent: "#997027",
+      buttonBg: "#997027",
+      buttonText: "#ffffff",
+      border: "#ebe5dc",
+      fontHeading: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "9999px",
+      cardRadius: "16px",
+    },
+  },
+  {
+    id: "coastline",
+    name: "Coastline",
+    description: "Made for image-led stories. Breezy coastal cards with sage accents and airy photography framing.",
+    category: "Photography · Travel",
+    filterGroup: "wellness",
+    minTier: "free",
+    previewImage: "https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=700&q=85",
+    tokens: {
+      bg: "#f4f8f7",
+      surface: "#ffffff",
+      ink: "#182625",
+      accent: "#277a67",
+      fontDisplay: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "soft-rounded",
+    },
+    theme: {
+      bg: "#f4f8f7",
+      cardBg: "#ffffff",
+      text: "#182625",
+      mutedText: "#5c706e",
+      accent: "#277a67",
+      buttonBg: "#277a67",
+      buttonText: "#ffffff",
+      border: "#d7e5e2",
+      fontHeading: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "9999px",
+      cardRadius: "12px",
+    },
+  },
+  {
+    id: "form-function",
+    name: "Form & Function",
+    description: "For makers and freelancers. High-contrast architectural grid with crisp borders and monospace metadata.",
+    category: "Portfolio · Freelancer",
+    filterGroup: "minimal",
+    minTier: "free",
+    previewImage: "https://images.unsplash.com/photo-1518005020951-e7a5c6c4b0e7?w=700&q=85",
+    tokens: {
+      bg: "#f6f5f2",
+      surface: "#ffffff",
+      ink: "#141413",
+      accent: "#211b29",
+      fontDisplay: "'Manrope', sans-serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "sharp-grid",
+    },
+    theme: {
+      bg: "#f6f5f2",
+      cardBg: "#ffffff",
+      text: "#141413",
+      mutedText: "#686662",
+      accent: "#211b29",
+      buttonBg: "#211b29",
+      buttonText: "#ffffff",
+      border: "#dfdcd4",
+      fontHeading: "'Manrope', sans-serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "8px",
+      cardRadius: "6px",
+    },
+  },
   {
     id: "atelier-editorial",
     name: "Atelier Editorial",
     description: "Refined editorial layout with Playfair Display and warm linen tones.",
     category: "Writers & High Fashion",
+    filterGroup: "editorial",
     minTier: "free",
+    previewImage: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=700&q=85",
     tokens: {
       bg: "#f4efe7",
       surface: "#fffdf8",
@@ -96,11 +201,109 @@ export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
     },
   },
   {
+    id: "soft-focus",
+    name: "Soft Focus",
+    description: "Pastel lavender and warm blush gradients built for lifestyle and beauty creators.",
+    category: "Creator · Personal Brand",
+    filterGroup: "editorial",
+    minTier: "creator",
+    previewImage: "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=700&q=85",
+    tokens: {
+      bg: "#faf6fe",
+      surface: "#ffffff",
+      ink: "#261c33",
+      accent: "#9d75e8",
+      fontDisplay: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "soft-pill",
+    },
+    theme: {
+      bg: "#faf6fe",
+      cardBg: "#ffffff",
+      text: "#261c33",
+      mutedText: "#7a6b8f",
+      accent: "#9d75e8",
+      buttonBg: "#9d75e8",
+      buttonText: "#ffffff",
+      border: "#e8def7",
+      fontHeading: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "9999px",
+      cardRadius: "16px",
+    },
+  },
+  {
+    id: "field-notes",
+    name: "Field Notes",
+    description: "Writer-first journal aesthetic highlighting blog essays, notes, and curated links.",
+    category: "Writer · Journal",
+    filterGroup: "editorial",
+    minTier: "creator",
+    previewImage: "https://images.unsplash.com/photo-1455390582262-044c3fb8a8b7?w=700&q=85",
+    tokens: {
+      bg: "#f9f5eb",
+      surface: "#fffdf7",
+      ink: "#2b261f",
+      accent: "#b85d19",
+      fontDisplay: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "linen-pill",
+    },
+    theme: {
+      bg: "#f9f5eb",
+      cardBg: "#fffdf7",
+      text: "#2b261f",
+      mutedText: "#7d7265",
+      accent: "#b85d19",
+      buttonBg: "#b85d19",
+      buttonText: "#ffffff",
+      border: "#e6decb",
+      fontHeading: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "12px",
+      cardRadius: "8px",
+    },
+  },
+  {
+    id: "studio-hours",
+    name: "Studio Hours",
+    description: "Rich dark mode obsidian canvas with warm gold and coral highlights for creative studios.",
+    category: "Artist · Creative Work",
+    filterGroup: "dark",
+    minTier: "pro",
+    previewImage: "https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?w=700&q=85",
+    tokens: {
+      bg: "#17131d",
+      surface: "#221c2b",
+      ink: "#fbf8f2",
+      accent: "#f36b3f",
+      fontDisplay: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      buttonStyle: "outline-glow",
+    },
+    theme: {
+      bg: "#17131d",
+      cardBg: "#221c2b",
+      text: "#fbf8f2",
+      mutedText: "#a99eb5",
+      accent: "#f36b3f",
+      buttonBg: "#f36b3f",
+      buttonText: "#ffffff",
+      border: "#342b40",
+      fontHeading: "'Playfair Display', serif",
+      fontBody: "'DM Sans', sans-serif",
+      avatarRadius: "16px",
+      cardRadius: "10px",
+    },
+  },
+  {
     id: "obsidian-noir",
     name: "Obsidian Noir",
     description: "Dark luxury aesthetic with deep inks, lilac glow, and high-contrast typography.",
     category: "Creators & Tech Founders",
+    filterGroup: "dark",
     minTier: "free",
+    previewImage: "https://images.unsplash.com/photo-1513622470522-26c3c8a854bc?w=700&q=85",
     tokens: {
       bg: "#16131b",
       surface: "#211b29",
@@ -130,7 +333,9 @@ export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
     name: "Sage Botanical",
     description: "Earthy organic tones with calming forest hues and delicate serif accents.",
     category: "Wellness & Skincare",
+    filterGroup: "wellness",
     minTier: "free",
+    previewImage: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=700&q=85",
     tokens: {
       bg: "#f2f5f3",
       surface: "#ffffff",
@@ -160,7 +365,9 @@ export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
     name: "Studio Minimal",
     description: "Swiss architectural minimalism with crisp lines and vivid tangerine pops.",
     category: "Photographers & Designers",
+    filterGroup: "minimal",
     minTier: "free",
+    previewImage: "https://images.unsplash.com/photo-1470770841072-f978cf4d019e?w=700&q=85",
     tokens: {
       bg: "#ffffff",
       surface: "#f8f9fa",
@@ -190,7 +397,9 @@ export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
     name: "Sunset Amber",
     description: "Rich terracotta warmth, glowing peach accents, and warm sun-drenched feel.",
     category: "Culinary & Lifestyle",
+    filterGroup: "editorial",
     minTier: "creator",
+    previewImage: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=700&q=85",
     tokens: {
       bg: "#fcf5ee",
       surface: "#ffffff",
@@ -220,7 +429,9 @@ export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
     name: "Tokyo Cyber",
     description: "Vibrant neon violet on dark obsidian for stream setups and music artists.",
     category: "Music & Gaming",
+    filterGroup: "dark",
     minTier: "creator",
+    previewImage: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=700&q=85",
     tokens: {
       bg: "#0d0b12",
       surface: "#1a1622",
@@ -250,7 +461,9 @@ export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
     name: "Monochrome Stark",
     description: "Pure black and stark white brutalist grid for architectural statements.",
     category: "Architects & Engineers",
+    filterGroup: "minimal",
     minTier: "free",
+    previewImage: "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=700&q=85",
     tokens: {
       bg: "#0a0a0a",
       surface: "#141414",
@@ -280,7 +493,9 @@ export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
     name: "Terracotta Warmth",
     description: "Rich earthenware pottery tones with toasted almond paper background.",
     category: "Ceramics & Artisans",
+    filterGroup: "wellness",
     minTier: "creator",
+    previewImage: "https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=700&q=85",
     tokens: {
       bg: "#f7f1eb",
       surface: "#fffaf5",
@@ -310,7 +525,9 @@ export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
     name: "Electric Indigo",
     description: "Deep oceanic navy with high-voltage indigo and cyan highlights.",
     category: "SaaS Founders & Devs",
+    filterGroup: "dark",
     minTier: "creator",
+    previewImage: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=700&q=85",
     tokens: {
       bg: "#0b1120",
       surface: "#111c35",
@@ -340,7 +557,9 @@ export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
     name: "Brutalist Raw",
     description: "Heavy 3px borders, hard drop shadows, and raw high-energy pop.",
     category: "Streetwear & Subculture",
+    filterGroup: "minimal",
     minTier: "pro",
+    previewImage: "https://images.unsplash.com/photo-1508739773434-c26b3d09e071?w=700&q=85",
     tokens: {
       bg: "#ffea79",
       surface: "#ffffff",
@@ -366,41 +585,13 @@ export const BIO_TEMPLATES: BiolioTemplateConfig[] = [
     },
   },
   {
-    id: "sunday-studio",
-    name: "Sunday Studio",
-    description: "Breezy coastal neutrals, soft linen textures, and sunlit clarity.",
-    category: "Authors & Podcasters",
-    minTier: "free",
-    tokens: {
-      bg: "#faf8f5",
-      surface: "#ffffff",
-      ink: "#232323",
-      accent: "#997027",
-      fontDisplay: "'Playfair Display', serif",
-      fontBody: "'DM Sans', sans-serif",
-      buttonStyle: "linen-pill",
-    },
-    theme: {
-      bg: "#faf8f5",
-      cardBg: "#ffffff",
-      text: "#232323",
-      mutedText: "#777777",
-      accent: "#997027",
-      buttonBg: "#997027",
-      buttonText: "#ffffff",
-      border: "#ebe5dc",
-      fontHeading: "'Playfair Display', serif",
-      fontBody: "'DM Sans', sans-serif",
-      avatarRadius: "9999px",
-      cardRadius: "16px",
-    },
-  },
-  {
     id: "velvet-night",
     name: "Velvet Night",
     description: "Deep burgundy luxury with champagne gold typography for fine dining & hospitality.",
     category: "Hospitality & Spirits",
+    filterGroup: "dark",
     minTier: "pro",
+    previewImage: "https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=700&q=85",
     tokens: {
       bg: "#180d14",
       surface: "#261521",

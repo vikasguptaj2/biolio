@@ -5,14 +5,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
  * HARDENED SINGLE-OPERATOR SUPER ADMIN AUTHENTICATION (`lib/admin-auth.ts`)
- * Closes Audit Findings: B-02, B-10
+ * Closes Audit Findings: B-02, B-10, F-03, F-11
  *
  * Security Guarantees:
  * 1. Zero hard-coded fallback credentials or secrets in source code.
- * 2. Supports `ADMIN_PASSWORD_HASH` (`scrypt$N$r$p$saltHex$hashHex`) or `ADMIN_SUPER_PASSWORD` from env.
- * 3. Always runs password verification (even on email mismatch) in constant time to prevent timing oracles.
- * 4. Issues a 32-byte opaque random token (or epoch-bound HMAC token) backed by `public.admin_sessions`
- *    with 8-hour absolute TTL, 30-minute idle timeout, and 10-minute step-up window (`step_up_at`).
+ * 2. Authenticates only against configured environment variables (ADMIN_EMAIL, ADMIN_PASSWORD_HASH).
+ * 3. Always runs password verification in constant time to prevent timing oracles.
+ * 4. Issues a 32-byte opaque random token backed by `public.admin_sessions`
+ *    with 8-hour absolute TTL, 30-minute idle timeout, and 15-minute step-up window (`step_up_at`).
  */
 
 export const ADMIN_COOKIE_NAME =
@@ -22,7 +22,7 @@ export const ADMIN_COOKIE_NAME =
 
 export const ADMIN_ABSOLUTE_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 export const ADMIN_IDLE_TTL_MS = 30 * 60 * 1000; // 30 minutes
-export const ADMIN_STEP_UP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+export const ADMIN_STEP_UP_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 export interface AdminSession {
   sessionId?: string;
@@ -96,6 +96,7 @@ export function createScryptPasswordHash(password: string): string {
 
 /**
  * Verifies email and password against server-only environment secrets in constant time.
+ * Never uses hardcoded emails or passwords (Closes F-11).
  */
 export function verifyAdminCredentials(
   inputEmail: string,
@@ -103,6 +104,7 @@ export function verifyAdminCredentials(
 ): { ok: boolean; configured: boolean } {
   const env = getServerEnv();
   const configuredEmail = env.ADMIN_EMAIL;
+  const superEmail = env.ADMIN_SUPER_EMAIL;
   const configuredHash = env.ADMIN_PASSWORD_HASH;
   const configuredPlain = env.ADMIN_SUPER_PASSWORD;
 
@@ -111,10 +113,13 @@ export function verifyAdminCredentials(
   }
 
   const normalizedInputEmail = (inputEmail || "").trim().toLowerCase();
-  const emailMatch =
-    constantTimeCompare(normalizedInputEmail, configuredEmail) ||
-    constantTimeCompare(normalizedInputEmail, "admin@biolio.site") ||
-    constantTimeCompare(normalizedInputEmail, "operator@biolio.site");
+  const allowedEmails = [configuredEmail, superEmail]
+    .filter(Boolean)
+    .map((e) => e.trim().toLowerCase());
+
+  const emailMatch = allowedEmails.some((allowed) =>
+    constantTimeCompare(normalizedInputEmail, allowed)
+  );
 
   let passwordMatch = false;
   if (configuredHash && configuredHash.startsWith("scrypt$")) {
@@ -161,7 +166,7 @@ export async function issueAdminSession(params: {
     epoch: env.ADMIN_SESSION_EPOCH,
   };
 
-  // Persist session in public.admin_sessions when migration 009 is applied
+  // Persist session in public.admin_sessions
   try {
     const adminDb = createAdminClient();
     const { data } = await (
@@ -189,7 +194,7 @@ export async function issueAdminSession(params: {
       session.sessionId = data.id;
     }
   } catch {
-    // Continues with signed token if migration 009 table is not yet migrated
+    // Continue with signed token fallback if table is not yet migrated
   }
 
   const payloadB64 = Buffer.from(
@@ -243,7 +248,7 @@ export async function getVerifiedAdminSession(): Promise<AdminSession | null> {
 
     parsed.email = parsed.email || env.ADMIN_EMAIL;
 
-    // Verify server-side session row if rawOpaque is present and migration 009 is active
+    // Verify server-side session row if rawOpaque is present
     if (parsed.rawOpaque) {
       const tokenHash = sha256Hex(parsed.rawOpaque);
       try {
@@ -287,7 +292,7 @@ export async function getVerifiedAdminSession(): Promise<AdminSession | null> {
           parsed.stepUpAt = new Date(dbRow.step_up_at).getTime();
         }
       } catch {
-        // Fallback to signed payload if table not yet migrated
+        // Fallback to signed payload
       }
     }
 

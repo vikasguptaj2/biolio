@@ -17,6 +17,7 @@ export interface PublicEnvConfig {
 export interface ServerEnvConfig extends PublicEnvConfig {
   SUPABASE_SERVICE_ROLE_KEY: string;
   ADMIN_EMAIL: string;
+  ADMIN_SUPER_EMAIL: string;
   ADMIN_PASSWORD_HASH: string;
   ADMIN_SUPER_PASSWORD: string;
   ADMIN_SESSION_SECRET: string;
@@ -60,6 +61,7 @@ export function getServerEnv(): ServerEnvConfig {
     )
       .trim()
       .toLowerCase(),
+    ADMIN_SUPER_EMAIL: (process.env.ADMIN_SUPER_EMAIL || "").trim().toLowerCase(),
     ADMIN_PASSWORD_HASH: (process.env.ADMIN_PASSWORD_HASH || "").trim(),
     ADMIN_SUPER_PASSWORD: process.env.ADMIN_SUPER_PASSWORD || "",
     ADMIN_SESSION_SECRET: process.env.ADMIN_SESSION_SECRET || "",

@@ -6,14 +6,14 @@ import { evaluateCommentMatch } from "@/lib/server/instagram/matcher";
 
 /**
  * PRODUCTION-GRADE META INSTAGRAM WEBHOOK INGRESS (`/api/webhooks/instagram`)
- * Closes Audit Findings: B-03, B-14, B-15
+ * Closes Audit Findings: B-03, B-14, B-15, F-06 (DATABASE.md §5, ARCHITECTURE.md §5)
  *
  * Security Requirements:
  * 1. Constant-time `X-Hub-Signature-256` HMAC validation.
  * 2. Strict 7-day age window (rejects stale comments outside Meta's private reply window).
  * 3. Self-comment suppression (prevents infinite loop responding to creator's own comment).
  * 4. Five-Layer Module Lock check (drops event if workspace has Bio-only plan / `ig_state = 'locked'`).
- * 5. Idempotent deduplication in `instagram_webhook_events` and `automation_executions`.
+ * 5. Schema-aligned persistence in `public.instagram_webhook_events` and `public.automation_executions`.
  */
 
 interface CommentValue {
@@ -61,10 +61,13 @@ interface EntitlementRow {
 
 interface AutomationRuleRow {
   id: string;
-  scope: string;
+  scope?: string;
+  target_scope?: string;
+  target_media_id?: string | null;
   selected_media_ids?: string[] | null;
   match_mode: string;
   keywords: string[] | null;
+  rule_version?: number;
 }
 
 interface WebhookEventRow {
@@ -246,7 +249,7 @@ export async function POST(request: NextRequest) {
         const commenterUsername = String(comment.from?.username || "instagram_user");
         const mediaId = String(comment.media?.id || "unknown_media");
 
-        // Self-comment loop guard: never reply to the creator's own account
+        // Self-comment loop guard: never reply to the creator's own account (Closes B-14)
         if (commenterId && commenterId === igBusinessAccountId) {
           continue;
         }
@@ -260,9 +263,9 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        const dedupeKey = `ig_comment:${connection.id}:${commentId}`;
+        const dedupeKey = `ig_comment:${igBusinessAccountId}:${commentId}`;
 
-        // 1. Idempotent insert into instagram_webhook_events
+        // 1. Schema-aligned insert into instagram_webhook_events (002 schema)
         const { data: webhookEvent, error: whErr } = await (
           adminDb.from("instagram_webhook_events" as never) as unknown as {
             insert: (row: Record<string, unknown>) => {
@@ -276,14 +279,14 @@ export async function POST(request: NextRequest) {
           }
         )
           .insert({
-            workspace_id: connection.workspace_id,
+            provider_event_id: dedupeKey,
             instagram_connection_id: connection.id,
-            dedupe_key: dedupeKey,
-            event_type: "comment",
-            ig_object_id: commentId,
-            ig_media_id: mediaId,
-            actor_ig_Scoped_id: commenterId || "unknown",
-            actor_username: commenterUsername,
+            ig_user_id: igBusinessAccountId,
+            surface_type: "post_or_reel",
+            comment_id: commentId,
+            media_id: mediaId,
+            commenter_ig_id: commenterId || "unknown",
+            commenter_username: commenterUsername,
             comment_text_redacted: commentText.slice(0, 240),
             comment_created_at: commentCreatedAt.toISOString(),
             signature_verified: true,
@@ -310,7 +313,7 @@ export async function POST(request: NextRequest) {
             }
           )
             .update({
-              processing_status: "ignored_no_match",
+              processing_status: "skipped",
               processed_at: new Date().toISOString(),
             })
             .eq("id", webhookEvent.id);
@@ -346,17 +349,20 @@ export async function POST(request: NextRequest) {
         let matchedKeyword: string | null = null;
 
         for (const rule of rules) {
-          if (
-            rule.scope === "selected_media" &&
-            Array.isArray(rule.selected_media_ids) &&
-            !rule.selected_media_ids.includes(mediaId)
-          ) {
-            continue;
+          // Check target_scope / scope
+          const isSpecific =
+            rule.target_scope === "specific_media" ||
+            rule.scope === "selected_media";
+          if (isSpecific) {
+            const allowedIds = rule.selected_media_ids || (rule.target_media_id ? [rule.target_media_id] : []);
+            if (Array.isArray(allowedIds) && allowedIds.length > 0 && !allowedIds.includes(mediaId)) {
+              continue;
+            }
           }
 
           const evalRes = evaluateCommentMatch(
             commentText,
-            rule.match_mode || "word",
+            rule.match_mode || "exact_token",
             Array.isArray(rule.keywords) ? rule.keywords : []
           );
 
@@ -376,14 +382,14 @@ export async function POST(request: NextRequest) {
             }
           )
             .update({
-              processing_status: "ignored_no_match",
+              processing_status: "skipped",
               processed_at: new Date().toISOString(),
             })
             .eq("id", webhookEvent.id);
           continue;
         }
 
-        // 4. Record queued execution (enforcing UNIQUE (instagram_connection_id, comment_id))
+        // 4. Record execution in automation_executions matching 002 schema
         const { error: execErr } = await (
           adminDb.from("automation_executions" as never) as unknown as {
             insert: (row: Record<string, unknown>) => Promise<{ error: unknown }>;
@@ -392,10 +398,11 @@ export async function POST(request: NextRequest) {
           workspace_id: connection.workspace_id,
           instagram_connection_id: connection.id,
           rule_id: matchedRule.id,
+          rule_version_evaluated: matchedRule.rule_version || 1,
           webhook_event_id: webhookEvent.id,
+          provider_event_id_snapshot: dedupeKey,
           comment_id: commentId,
-          media_id: mediaId,
-          commenter_ig_scoped_id: commenterId || "unknown",
+          commenter_ig_id: commenterId || "unknown",
           commenter_username: commenterUsername,
           matched_keyword: matchedKeyword || "*",
           status: "queued",
@@ -411,7 +418,7 @@ export async function POST(request: NextRequest) {
             }
           )
             .update({
-              processing_status: "enqueued",
+              processing_status: "queued",
               processed_at: new Date().toISOString(),
             })
             .eq("id", webhookEvent.id);

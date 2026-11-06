@@ -102,9 +102,24 @@ export async function GET(request: NextRequest) {
     return makeRedirect("/signin?error=oauth_failed");
   }
 
-  // Defensively ensure user_profiles row exists for OAuth user
-  await supabase.from("user_profiles").upsert(
-    {
+  // 1. Strictly check if user already exists and is suspended BEFORE any upsert (Closes F-02)
+  const { data: existingProfile } = await supabase
+    .from("user_profiles")
+    .select("account_status")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (
+    existingProfile &&
+    (existingProfile as { account_status: string | null }).account_status === "suspended"
+  ) {
+    await supabase.auth.signOut();
+    return makeRedirect("/signin?error=suspended");
+  }
+
+  // 2. Safe creation or non-destructive update
+  if (!existingProfile) {
+    await supabase.from("user_profiles").insert({
       id: user.id,
       email: user.email || `${user.id}@placeholder.biolio.site`,
       full_name:
@@ -113,20 +128,19 @@ export async function GET(request: NextRequest) {
         "Creator",
       account_status: "active",
       updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" }
-  );
-
-  // Check account_status in user_profiles
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("account_status")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (profile && (profile as { account_status: string | null }).account_status === "suspended") {
-    await supabase.auth.signOut();
-    return makeRedirect("/signin?error=suspended");
+    });
+  } else {
+    // Only update non-privileged fields (never overwrite account_status)
+    await supabase
+      .from("user_profiles")
+      .update({
+        full_name:
+          user.user_metadata?.full_name ||
+          user.email?.split("@")[0] ||
+          "Creator",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id);
   }
 
   // If redirecting to password reset, bypass workspace check

@@ -1,10 +1,7 @@
-import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { evaluateWorkspaceEntitlements } from "@/lib/entitlements";
-
-export const instant = false;
 import {
   LayoutDashboard,
   Globe,
@@ -18,6 +15,18 @@ import {
   Lock,
   Sparkles,
 } from "lucide-react";
+
+export const instant = false;
+
+interface WorkspaceRow {
+  id: string;
+  name: string;
+  slug: string;
+  creator_role?: string | null;
+  status: string;
+  intended_modules?: string[] | null;
+  workspace_entitlements?: Record<string, unknown> | Array<Record<string, unknown>> | null;
+}
 
 export default async function DashboardLayout({
   children,
@@ -37,217 +46,262 @@ export default async function DashboardLayout({
   const { data: workspaces } = await supabase
     .from("workspaces")
     .select(
-      "id, name, slug, status, intended_modules, workspace_entitlements(*)"
+      "id, name, slug, creator_role, status, intended_modules, workspace_entitlements(*)"
     )
     .eq("owner_id", user.id)
     .order("created_at", { ascending: true })
     .limit(1);
 
-  interface WorkspaceLayoutItem {
-    id: string;
-    name: string;
-    slug: string;
-    status: string;
-    intended_modules?: string[] | null;
-    workspace_entitlements?: Record<string, unknown> | Array<Record<string, unknown>> | null;
-  }
-
-  const activeWorkspace = (workspaces?.[0] as unknown) as WorkspaceLayoutItem | undefined;
+  const activeWorkspace = (workspaces?.[0] as unknown as WorkspaceRow) || null;
   const rawEnt = Array.isArray(activeWorkspace?.workspace_entitlements)
     ? activeWorkspace.workspace_entitlements[0]
     : activeWorkspace?.workspace_entitlements;
 
   const entitlements = evaluateWorkspaceEntitlements(
-    rawEnt,
+    rawEnt as Record<string, unknown> | undefined,
     activeWorkspace?.intended_modules
   );
 
-  const navItems = [
-    {
-      name: "Overview",
-      href: "/dashboard",
-      icon: LayoutDashboard,
-      locked: false,
-    },
-    {
-      name: "Bio Website Studio",
-      href: "/dashboard/bio",
-      icon: Globe,
-      locked: entitlements.isBioProductLocked,
-      tierBadge: entitlements.isBioProductLocked
-        ? "LOCKED"
-        : entitlements.bioTier.toUpperCase(),
-    },
-    {
-      name: "IG DM Automation",
-      href: "/dashboard/automation",
-      icon: MessageSquareCode,
-      locked: entitlements.isAutomationProductLocked,
-      tierBadge: entitlements.isAutomationProductLocked
-        ? "LOCKED"
-        : entitlements.igTier.toUpperCase(),
-    },
-    {
-      name: "Privacy Analytics",
-      href: "/dashboard/analytics",
-      icon: BarChart3,
-      locked: false,
-    },
-    {
-      name: "Billing & Coupons",
-      href: "/dashboard/billing",
-      icon: CreditCard,
-      locked: false,
-    },
-    {
-      name: "Workspace Settings",
-      href: "/dashboard/settings",
-      icon: Settings,
-      locked: false,
-    },
-  ];
+  const initials = (activeWorkspace?.name || user.email || "AM")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
-    <div className="min-h-screen bg-[#fbf8f2] flex flex-col md:flex-row">
-      {/* Sidebar */}
-      <aside className="w-full md:w-68 border-b md:border-b-0 md:border-r border-[#e5dcd1] bg-[#fffdf8] flex flex-col justify-between shrink-0">
-        <div className="p-6">
-          {/* Brand Header */}
-          <div className="flex items-center justify-between mb-6">
-            <Link href="/dashboard" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f36b3f] text-white font-display font-extrabold text-base shadow-sm">
-                B
-              </div>
-              <span className="font-display font-extrabold text-xl tracking-tighter text-[#211b29]">
-                Biolio<span className="text-[#f36b3f]">.</span>
-              </span>
+    <div className="min-h-screen bg-[#f4efe7] text-[#211b29] flex flex-col md:flex-row">
+      {/* Atelier Concept 03 Dark Ink Navigation Sidebar (#211b29) */}
+      <aside className="w-full md:w-[258px] bg-[#211b29] text-white flex flex-col justify-between shrink-0 md:h-screen md:sticky md:top-0 shadow-[10px_0_40px_rgba(29,22,31,0.08)]">
+        <div className="p-5 overflow-y-auto">
+          {/* Wordmark */}
+          <div className="flex items-center justify-between mb-6 px-1">
+            <Link
+              href="/dashboard"
+              className="font-display text-[27px] font-extrabold tracking-[-1.8px] text-white"
+            >
+              biolio<span className="text-[#f36b3f]">.</span>
             </Link>
-            <span className="rounded-full bg-[#f3ece2] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#211b29]">
-              v6.0
+            <span className="rounded bg-white/10 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[#e4d8ed]">
+              Atelier v6
             </span>
           </div>
 
-          {/* Workspace Pill + Active Plan Scope */}
+          {/* Workspace Switcher Card */}
           {activeWorkspace ? (
-            <div className="mb-6 rounded-2xl border border-[#e5dcd1] bg-[#fbf8f2] p-3.5">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-[#7c727e]">
-                Active Workspace
+            <div className="mb-6 rounded-[7px] border border-white/15 bg-white/[0.06] p-3">
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-[#f4b69d] to-[#c9b5f4] flex items-center justify-center font-extrabold text-xs text-[#211b29] shrink-0">
+                  {initials}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-white truncate">
+                    {activeWorkspace.name}
+                  </div>
+                  <div className="text-[10px] text-[#b9aebb] truncate">
+                    @{activeWorkspace.slug}
+                  </div>
+                </div>
               </div>
-              <div className="font-display font-bold text-sm text-[#211b29] truncate">
-                {activeWorkspace.name}
-              </div>
-              <Link
-                href={`/${activeWorkspace.slug}`}
-                target="_blank"
-                className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-[#f36b3f] hover:underline"
-              >
-                biolio.site/{activeWorkspace.slug}
-                <ExternalLink className="h-3 w-3" />
-              </Link>
-
-              <div className="mt-3 pt-2.5 border-t border-[#e5dcd1] flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-[#211b29]">
-                  <Sparkles className="h-3 w-3 text-[#f36b3f]" />
-                  {entitlements.scope === "bio_only"
-                    ? "Bio Standalone"
-                    : entitlements.scope === "automation_only"
-                    ? "IG Standalone"
-                    : entitlements.scope === "bundle"
-                    ? "All-in-One Bundle"
-                    : "Starter Free"}
+              <div className="mt-2.5 pt-2.5 border-t border-white/10 flex items-center justify-between text-[10px]">
+                <span className="text-[#ff9c7e] font-bold">
+                  {entitlements.activePlanLabel}
                 </span>
                 <Link
-                  href="/dashboard/billing"
-                  className="text-[10px] font-bold text-[#f36b3f] hover:underline"
+                  href={`/${activeWorkspace.slug}`}
+                  target="_blank"
+                  className="inline-flex items-center gap-1 text-[#c9b5f4] hover:underline"
                 >
-                  Change Plan
+                  Live ↗
                 </Link>
               </div>
             </div>
           ) : (
-            <div className="mb-6 rounded-2xl border border-dashed border-[#f36b3f] bg-[#fff5f0] p-3.5">
-              <div className="text-xs font-bold text-[#211b29] mb-1">
+            <div className="mb-6 rounded-[7px] border border-dashed border-[#f36b3f] bg-[#f36b3f]/15 p-3">
+              <div className="text-xs font-bold text-white">
                 No handle claimed yet
               </div>
               <Link
                 href="/onboarding"
-                className="inline-flex items-center gap-1 text-xs font-bold text-[#f36b3f] hover:underline"
+                className="mt-1 inline-block text-[11px] font-bold text-[#ff9c7e] hover:underline"
               >
-                Claim your handle &rarr;
+                Complete onboarding &rarr;
               </Link>
             </div>
           )}
 
-          {/* Navigation */}
+          {/* Section 1: Workspace */}
+          <div className="text-[9px] font-extrabold uppercase tracking-[1.7px] text-[#a89bac] px-2.5 mb-1.5">
+            Workspace
+          </div>
+          <nav className="space-y-1 mb-4">
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2.5 rounded-[6px] px-2.5 py-2.5 text-[11px] font-semibold text-[#c9c0cb] hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <LayoutDashboard className="h-4 w-4 text-[#f36b3f]" />
+              Overview
+            </Link>
+          </nav>
+
+          {/* Section 2: Biolio Bio */}
+          <div className="flex items-center justify-between px-2.5 mb-1.5 mt-4">
+            <span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[1.3px] text-[#9b8da0]">
+              <span className="h-2 w-2 rounded-full bg-[#f36b3f]" />
+              Biolio Bio
+            </span>
+            {entitlements.isBioProductLocked ? (
+              <span className="inline-flex items-center gap-1 rounded bg-[#a62639]/30 px-1.5 py-0.5 text-[8px] font-extrabold uppercase text-[#ff8f85]">
+                <Lock className="h-2.5 w-2.5" /> Locked
+              </span>
+            ) : (
+              <span className="rounded bg-white/15 px-1.5 py-0.5 text-[8px] font-extrabold uppercase text-[#e4d8ed]">
+                {entitlements.bioTier}
+              </span>
+            )}
+          </div>
+          <nav className="space-y-1 mb-4">
+            <Link
+              href="/dashboard/bio"
+              className="flex items-center justify-between rounded-[6px] px-2.5 py-2 text-[11px] font-semibold text-[#c9c0cb] hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <span className="flex items-center gap-2.5">
+                <Globe className="h-4 w-4 text-[#ff9c7e]" />
+                Website builder &amp; studio
+              </span>
+              <span className="rounded bg-[#f36b3f]/25 px-1.5 py-0.5 text-[8px] font-extrabold text-[#ff9c7e]">
+                LIVE
+              </span>
+            </Link>
+            <Link
+              href="/dashboard/analytics"
+              className="flex items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-[11px] font-semibold text-[#c9c0cb] hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <BarChart3 className="h-4 w-4 text-[#c9b5f4]" />
+              Bio analytics &amp; insights
+            </Link>
+          </nav>
+
+          {/* Section 3: Instagram Automation */}
+          <div className="flex items-center justify-between px-2.5 mb-1.5 mt-4">
+            <span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[1.3px] text-[#9b8da0]">
+              <span className="h-2 w-2 rounded-full bg-[#6ac2a2]" />
+              Instagram Automation
+            </span>
+            {entitlements.isAutomationProductLocked ? (
+              <span className="inline-flex items-center gap-1 rounded bg-[#a62639]/30 px-1.5 py-0.5 text-[8px] font-extrabold uppercase text-[#ff8f85]">
+                <Lock className="h-2.5 w-2.5" /> Locked
+              </span>
+            ) : (
+              <span className="rounded bg-white/15 px-1.5 py-0.5 text-[8px] font-extrabold uppercase text-[#6ac2a2]">
+                {entitlements.igTier}
+              </span>
+            )}
+          </div>
+          <nav className="space-y-1 mb-4">
+            <Link
+              href="/dashboard/automation"
+              className="flex items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-[11px] font-semibold text-[#c9c0cb] hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <MessageSquareCode className="h-4 w-4 text-[#6ac2a2]" />
+              Automations &amp; flow builder
+            </Link>
+          </nav>
+
+          {/* Section 4: Account & Billing */}
+          <div className="text-[9px] font-extrabold uppercase tracking-[1.7px] text-[#a89bac] px-2.5 mb-1.5 mt-4">
+            Billing &amp; Settings
+          </div>
           <nav className="space-y-1">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-bold text-[#4b4351] hover:bg-[#f3ece2] hover:text-[#211b29] transition-colors"
-                >
-                  <span className="flex items-center gap-3">
-                    <Icon className="h-4 w-4 text-[#f36b3f]" />
-                    {item.name}
-                  </span>
-                  {item.tierBadge && (
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase ${
-                        item.locked
-                          ? "bg-[#a62639]/15 text-[#a62639]"
-                          : "bg-[#277a67]/15 text-[#1e6051]"
-                      }`}
-                    >
-                      {item.locked && <Lock className="h-2.5 w-2.5" />}
-                      {item.tierBadge}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
+            <Link
+              href="/dashboard/billing"
+              className="flex items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-[11px] font-semibold text-[#c9c0cb] hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <CreditCard className="h-4 w-4 text-[#f36b3f]" />
+              Plans, locks &amp; coupons
+            </Link>
+            <Link
+              href="/dashboard/settings"
+              className="flex items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-[11px] font-semibold text-[#c9c0cb] hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <Settings className="h-4 w-4 text-[#c9b5f4]" />
+              Workspace settings
+            </Link>
           </nav>
         </div>
 
-        {/* User Footer */}
-        <div className="p-6 border-t border-[#e5dcd1] space-y-3">
-          <Link
-            href="/admin/login"
-            className="flex items-center gap-2 rounded-xl px-3 py-2 text-[11px] font-bold text-[#7c727e] hover:bg-[#f3ece2] hover:text-[#211b29] transition-colors"
-          >
-            <ShieldAlert className="h-3.5 w-3.5 text-[#f36b3f]" />
-            Super Admin Console
-          </Link>
-          <div className="px-3 text-[11px] text-[#7c727e] truncate">
-            {user.email}
-          </div>
-          <form action="/auth/signout" method="post">
-            <button
-              type="submit"
-              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-[#a62639] hover:bg-[#fde8eb] transition-colors"
+        {/* Sidebar Footer: Upgrade Box + User Mini */}
+        <div className="p-5 border-t border-white/10 space-y-3">
+          <div className="rounded-[7px] border border-white/15 bg-[#332a39] p-3.5">
+            <div className="text-xs font-bold text-white flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-[#f36b3f]" />
+              Make your presence bigger.
+            </div>
+            <p className="text-[10px] text-[#c5b9c7] mt-1 leading-relaxed">
+              Unlock both Bio Studio &amp; Instagram Automation with the All-in-One Bundle.
+            </p>
+            <Link
+              href="/dashboard/billing"
+              className="mt-2.5 inline-block rounded-[5px] bg-[#f36b3f] px-3 py-1.5 text-[10px] font-extrabold text-white hover:bg-[#e55f34]"
             >
-              <LogOut className="h-3.5 w-3.5" />
-              Sign out
-            </button>
-          </form>
+              Explore Pro &amp; Bundle ↗
+            </Link>
+          </div>
+
+          <div className="flex items-center justify-between pt-1">
+            <Link
+              href="/admin/login"
+              className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[#b9aebb] hover:text-white"
+            >
+              <ShieldAlert className="h-3.5 w-3.5 text-[#f36b3f]" />
+              Admin Console
+            </Link>
+            <form action="/auth/signout" method="post">
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1 text-[10px] font-bold text-[#ff9c7e] hover:underline cursor-pointer"
+              >
+                <LogOut className="h-3 w-3" />
+                Sign out
+              </button>
+            </form>
+          </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto p-6 md:p-10">
-        <div className="mx-auto max-w-6xl">
-          <Suspense
-            fallback={
-              <div className="p-8 text-xs text-[#7c727e] animate-pulse">
-                Loading dashboard...
-              </div>
-            }
-          >
-            {children}
-          </Suspense>
-        </div>
-      </main>
+      {/* Main Content Area with Atelier Concept 03 Topbar */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="h-[68px] border-b border-[#e7ded3] bg-[#f8f4ed] px-6 lg:px-12 flex items-center justify-between sticky top-0 z-20">
+          <div className="flex items-center gap-2 text-xs text-[#958a91]">
+            <span>Workspace</span>
+            <span>/</span>
+            <strong className="text-[#211b29] font-bold">
+              {activeWorkspace?.name || "Creator Studio"}
+            </strong>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {activeWorkspace && (
+              <Link
+                href={`/${activeWorkspace.slug}`}
+                target="_blank"
+                className="inline-flex items-center gap-1.5 rounded-[5px] border border-[#ded4c9] bg-[#fffdf8] px-3 py-1.5 text-[11px] font-bold text-[#211b29] hover:border-[#211b29]"
+              >
+                Preview site
+                <ExternalLink className="h-3 w-3 text-[#f36b3f]" />
+              </Link>
+            )}
+            <div className="hidden sm:flex items-center gap-2 rounded-[5px] border border-[#e4dacf] bg-[#fffdf8] px-3 py-1.5 text-[10px] font-semibold text-[#695f6c]">
+              <span className="h-2 w-2 rounded-full bg-[#31a47e]" />
+              {entitlements.activePlanLabel}
+            </div>
+            <span className="hidden lg:inline-block border-l border-[#e4dacf] pl-3 text-[9px] font-extrabold tracking-[1.25px] text-[#9c8f91] uppercase">
+              ATELIER EDITION / CONCEPT 03
+            </span>
+          </div>
+        </header>
+
+        <main className="flex-1 p-6 lg:p-12 max-w-[1600px] w-full mx-auto">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }
