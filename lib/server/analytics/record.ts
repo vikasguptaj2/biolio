@@ -98,12 +98,13 @@ export async function recordAnalyticsEvent(options: AnalyticsRecordOptions): Pro
     }
 
     const env = getServerEnv();
+    if (env.VISITOR_HASH_SALT.length < 32) return;
     const ua = headers?.get("user-agent") || "unknown";
     const xff = headers?.get("x-forwarded-for") || "127.0.0.1";
     const clientIp = xff.split(",")[0]?.trim() || "127.0.0.1";
 
     const todayDate = new Date().toISOString().slice(0, 10);
-    const salt = `${env.VISITOR_HASH_SALT || "biolio_visitor_salt"}:${todayDate}`;
+    const salt = `${env.VISITOR_HASH_SALT}:${todayDate}`;
 
     const visitorDailyHmac = crypto
       .createHmac("sha256", salt)

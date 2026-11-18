@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { ArrowLeft, Clock, Calendar } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { BIOLIO_TEMPLATES } from "@/lib/design-tokens";
-import { sanitizeHtml } from "@/lib/server/sanitize/html";
+import { recordAnalyticsEvent } from "@/lib/server/analytics/record";
+import { LegacyMarkdownContent, TiptapContent } from "@/components/blog/tiptap-content";
 
 interface PageProps {
   params: Promise<{ handle: string; slug: string }>;
@@ -89,13 +91,24 @@ async function BlogPostContent({ params }: PageProps) {
 
   const { data: post } = await supabase
     .from("bio_blog_posts")
-    .select("id, bio_profile_id, workspace_id, title, slug, category, excerpt, sanitized_html, cover_media_id, reading_time_minutes, seo_title, seo_description, status, published_at")
+    .select("id, bio_profile_id, workspace_id, title, slug, category, excerpt, content_markdown, content_json, cover_media_id, reading_time_minutes, seo_title, seo_description, status, published_at")
     .eq("bio_profile_id", profile.id)
     .eq("slug", slug)
     .eq("status", "published")
     .maybeSingle();
 
   if (!post) notFound();
+
+  if (post.workspace_id) {
+    const headerList = await headers();
+    recordAnalyticsEvent({
+      workspaceId: post.workspace_id,
+      bioProfileId: profile.id,
+      blogPostId: post.id,
+      eventType: "bio.blog_view",
+      headers: headerList,
+    }).catch(() => {});
+  }
 
   // Resolve template from published snapshot or fallback
   let templateId = "atelier-editorial";
@@ -200,8 +213,10 @@ async function BlogPostContent({ params }: PageProps) {
           className="prose prose-sm sm:prose-base max-w-none leading-relaxed space-y-6"
           style={{ fontFamily: theme.fontBody }}
         >
-          {post.sanitized_html ? (
-            <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(post.sanitized_html) }} />
+          {post.content_json && typeof post.content_json === "object" && Object.keys(post.content_json).length > 0 ? (
+            <TiptapContent document={post.content_json} />
+          ) : post.content_markdown ? (
+            <LegacyMarkdownContent markdown={post.content_markdown} />
           ) : post.excerpt ? (
             <p className="text-sm sm:text-base leading-relaxed">{post.excerpt}</p>
           ) : (

@@ -21,7 +21,9 @@ VALUES
   ('support', 'system_route_support'),
   ('grievance', 'system_route_legal'),
   ('security', 'system_route_security'),
-  ('compliance', 'system_route_legal')
+  ('compliance', 'system_route_legal'),
+  ('content', 'system_route_content'),
+  ('inquiries', 'system_route_inbox')
 ON CONFLICT (handle) DO NOTHING;
 
 -- =============================================================================

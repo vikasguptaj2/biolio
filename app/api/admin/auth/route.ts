@@ -9,16 +9,17 @@ import {
 } from "@/lib/admin-auth";
 import { getServerEnv } from "@/lib/server/config/env";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { verifySameOrigin } from "@/lib/server/http/guard";
 
 interface TableWithCount {
   select: (cols: string, opt: { count: string; head: boolean }) => {
     eq: (col: string, val: unknown) => {
       eq: (col2: string, val2: unknown) => {
-        gte: (col3: string, val3: unknown) => Promise<{ count: number | null }>;
+        gte: (col3: string, val3: unknown) => Promise<{ count: number | null; error: unknown }>;
       };
     };
   };
-  insert: (row: Record<string, unknown>) => Promise<unknown>;
+  insert: (row: Record<string, unknown>) => Promise<{ error: unknown }>;
   update: (values: Record<string, unknown>) => {
     eq: (col: string, val: string) => Promise<unknown>;
   };
@@ -36,6 +37,7 @@ interface TableWithCount {
  */
 export async function POST(request: NextRequest) {
   try {
+    verifySameOrigin(request);
     const env = getServerEnv();
     const xff = request.headers.get("x-forwarded-for") || "127.0.0.1";
     const clientIp = xff.split(",")[0]?.trim() || "127.0.0.1";
@@ -53,9 +55,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json().catch(() => ({}));
+    const rawBody = await request.text();
+    if (rawBody.length > 8_192) {
+      return NextResponse.json(
+        { error: { code: "VALIDATION_ERROR", message: "Request is too large." } },
+        { status: 413, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+    let body: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(rawBody || "{}");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid body");
+      body = parsed as Record<string, unknown>;
+    } catch {
+      return NextResponse.json(
+        { error: { code: "VALIDATION_ERROR", message: "Invalid request body." } },
+        { status: 400, headers: { "Cache-Control": "no-store" } }
+      );
+    }
     const email = String(body.email || "").trim().toLowerCase();
     const password = String(body.password || "");
+    if (email.length > 320 || password.length > 512) {
+      return NextResponse.json(
+        { error: { code: "VALIDATION_ERROR", message: "Invalid credentials." } },
+        { status: 422, headers: { "Cache-Control": "no-store" } }
+      );
+    }
     const emailHash = sha256Hex(email || "empty");
 
     const adminDb = createAdminClient();
@@ -65,12 +90,13 @@ export async function POST(request: NextRequest) {
     // 2. Check brute-force rate limit (5 failures in last 15 minutes)
     try {
       const windowStart = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-      const { count } = await loginAttempts
+      const { count, error } = await loginAttempts
         .select("*", { count: "exact", head: true })
         .eq("ip_hash", ipHash)
         .eq("success", false)
         .gte("attempted_at", windowStart);
 
+      if (error) throw error;
       if ((count ?? 0) >= 5) {
         return NextResponse.json(
           {
@@ -89,7 +115,10 @@ export async function POST(request: NextRequest) {
         );
       }
     } catch {
-      // Continues if admin_login_attempts table is not yet migrated
+      return NextResponse.json(
+        { error: { code: "PROVIDER_NOT_READY", message: "Admin login protection is temporarily unavailable." } },
+        { status: 503, headers: { "Cache-Control": "no-store" } }
+      );
     }
 
     // 3. Constant-time credential verification
@@ -100,7 +129,7 @@ export async function POST(request: NextRequest) {
           error: {
             code: "PROVIDER_NOT_READY",
             message:
-              "Super Admin credentials (ADMIN_EMAIL and ADMIN_PASSWORD_HASH or ADMIN_SUPER_PASSWORD) are not configured in environment variables.",
+              "Secure Super Admin credentials are not configured in the server environment.",
           },
         },
         { status: 503, headers: { "Cache-Control": "no-store" } }
@@ -109,13 +138,17 @@ export async function POST(request: NextRequest) {
 
     if (!verification.ok) {
       try {
-        await loginAttempts.insert({
+        const { error } = await loginAttempts.insert({
           email_hash: emailHash,
           ip_hash: ipHash,
           success: false,
         });
+        if (error) throw error;
       } catch {
-        // Ignore if table not yet migrated
+        return NextResponse.json(
+          { error: { code: "PROVIDER_NOT_READY", message: "Admin login protection is temporarily unavailable." } },
+          { status: 503, headers: { "Cache-Control": "no-store" } }
+        );
       }
 
       return NextResponse.json(
@@ -136,13 +169,14 @@ export async function POST(request: NextRequest) {
     });
 
     try {
-      await loginAttempts.insert({
+      const { error: attemptError } = await loginAttempts.insert({
         email_hash: emailHash,
         ip_hash: ipHash,
         success: true,
       });
+      if (attemptError) throw attemptError;
 
-      await auditLogs.insert({
+      const { error: auditError } = await auditLogs.insert({
         actor_role: "super_admin",
         actor_user_id: null,
         action: "ADMIN_LOGIN",
@@ -152,8 +186,19 @@ export async function POST(request: NextRequest) {
         reason: "Authenticated Super Admin session",
         result_status: "success",
       });
+      if (auditError) throw auditError;
     } catch {
-      // Ignore if optional audit column not yet migrated
+      if (session.sessionId) {
+        await (adminDb.from("admin_sessions" as never) as unknown as {
+          update: (values: Record<string, unknown>) => {
+            eq: (column: string, value: string) => Promise<unknown>;
+          };
+        }).update({ revoked_at: new Date().toISOString() }).eq("id", session.sessionId);
+      }
+      return NextResponse.json(
+        { error: { code: "PROVIDER_NOT_READY", message: "Admin audit storage is temporarily unavailable." } },
+        { status: 503, headers: { "Cache-Control": "no-store" } }
+      );
     }
 
     const response = NextResponse.json(
@@ -187,7 +232,15 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
+  try {
+    verifySameOrigin(request);
+  } catch {
+    return NextResponse.json(
+      { error: { code: "FORBIDDEN", message: "Request origin could not be verified." } },
+      { status: 403, headers: { "Cache-Control": "no-store" } }
+    );
+  }
   const adminSession = await getVerifiedAdminSession();
   const adminDb = createAdminClient();
 

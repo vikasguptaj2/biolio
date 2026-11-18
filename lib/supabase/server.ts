@@ -40,9 +40,26 @@ export async function createClient(): Promise<TypedSupabaseClient> {
   );
 }
 
+export interface SessionWorkspaceRow {
+  id: string;
+  name: string;
+  slug: string;
+  creator_role?: string | null;
+  status: string;
+  owner_id?: string;
+  intended_modules?: string[] | null;
+  workspace_entitlements?: Record<string, unknown> | Array<Record<string, unknown>> | null;
+}
+
+export interface SessionMembershipRow {
+  workspace_id: string;
+  role: "owner" | "admin" | "editor";
+  status: string;
+}
+
 /**
- * Returns current authenticated user and their active workspace context.
- * Uses `.limit(1)` instead of `.single()` on memberships so multi-workspace accounts never throw (Closes B-19).
+ * Returns current authenticated user, verified account status, and authoritative workspace context.
+ * Resolves active membership first, then falls back to owned workspace, ensuring single source of truth (Closes F-12, B-19).
  */
 export async function getSessionContext() {
   const supabase = await createClient();
@@ -52,7 +69,14 @@ export async function getSessionContext() {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    return { user: null, profile: null, workspace: null, membership: null };
+    return {
+      user: null,
+      profile: null,
+      workspace: null,
+      membership: null,
+      entitlements: null,
+      isSuspended: false,
+    };
   }
 
   // Fetch user profile
@@ -62,7 +86,9 @@ export async function getSessionContext() {
     .eq("id", user.id)
     .maybeSingle();
 
-  // Fetch user's active workspace membership (or default one)
+  const isSuspended = profile?.account_status === "suspended";
+
+  // 1. Fetch user's active workspace membership
   const { data: memberships } = await supabase
     .from("workspace_members")
     .select("workspace_id, role, status")
@@ -71,21 +97,65 @@ export async function getSessionContext() {
     .order("created_at", { ascending: true })
     .limit(1);
 
-  const membership = memberships?.[0] || null;
-  if (!membership?.workspace_id) {
-    return { user, profile, workspace: null, membership: null };
+  let membership: SessionMembershipRow | null =
+    (memberships?.[0] as unknown as SessionMembershipRow) || null;
+
+  let workspaceId = membership?.workspace_id;
+
+  // 2. Fallback: check if user owns a workspace directly
+  if (!workspaceId) {
+    const { data: owned } = await supabase
+      .from("workspaces")
+      .select("id")
+      .eq("owner_id", user.id)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (owned?.[0]?.id) {
+      workspaceId = owned[0].id;
+      membership = {
+        workspace_id: workspaceId,
+        role: "owner",
+        status: "active",
+      };
+    }
   }
 
+  if (!workspaceId) {
+    return {
+      user,
+      profile,
+      workspace: null,
+      membership: null,
+      entitlements: null,
+      isSuspended,
+    };
+  }
+
+  // 3. Fetch full workspace with entitlements projection
   const { data: workspace } = await supabase
     .from("workspaces")
-    .select("*")
-    .eq("id", membership.workspace_id)
+    .select("id, name, slug, creator_role, status, owner_id, intended_modules, workspace_entitlements(*)")
+    .eq("id", workspaceId)
     .maybeSingle();
+
+  const wsTyped = workspace as unknown as SessionWorkspaceRow | null;
+  const rawEnt = Array.isArray(wsTyped?.workspace_entitlements)
+    ? wsTyped.workspace_entitlements[0]
+    : wsTyped?.workspace_entitlements;
+
+  const { evaluateWorkspaceEntitlements } = await import("@/lib/entitlements");
+  const entitlements = evaluateWorkspaceEntitlements(
+    rawEnt as Record<string, unknown> | undefined,
+    wsTyped?.intended_modules
+  );
 
   return {
     user,
     profile,
-    workspace,
+    workspace: wsTyped,
     membership,
+    entitlements,
+    isSuspended,
   };
 }

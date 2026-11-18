@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getVerifiedAdminSession } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hashCouponCode, maskCouponCode, normalizeCouponCode } from "@/lib/server/coupons/hash";
+import { handleRouteError, RouteAccessError, verifySameOrigin } from "@/lib/server/http/guard";
 
 interface AdminOpsTable {
   insert: (row: Record<string, unknown>) => {
@@ -23,13 +24,25 @@ type RpcFunction = (fn: string, args: Record<string, unknown>) => Promise<{ data
 
 export async function POST(request: NextRequest) {
   try {
+    verifySameOrigin(request);
     // 1. Strictly verify Super Admin Session
     const adminSession = await getVerifiedAdminSession();
     if (!adminSession) {
       return NextResponse.json({ error: "Unauthorized Super Admin" }, { status: 401 });
     }
 
-    const body = await request.json().catch(() => ({}));
+    const raw = await request.text();
+    if (raw.length > 32_768) {
+      return NextResponse.json({ error: "Request is too large." }, { status: 413 });
+    }
+    let body: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(raw || "{}");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid body");
+      body = parsed as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
     const { action } = body;
     const adminDb = createAdminClient();
 
@@ -46,7 +59,8 @@ export async function POST(request: NextRequest) {
     // Action 1: Override Workspace Plan & Feature Locks
     // =========================================================================
     if (action === "override_plan") {
-      const { workspaceId, planId } = body;
+      const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : "";
+      const planId = typeof body.planId === "string" ? body.planId : "";
       if (!workspaceId || !planId) {
         return NextResponse.json({ error: "workspaceId and planId required" }, { status: 400 });
       }
@@ -193,7 +207,8 @@ export async function POST(request: NextRequest) {
     // Action 2: Update Workspace Operational Status
     // =========================================================================
     if (action === "set_workspace_status") {
-      const { workspaceId, status } = body;
+      const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : "";
+      const status = typeof body.status === "string" ? body.status : "";
       if (!workspaceId || !status) {
         return NextResponse.json({ error: "workspaceId and status required" }, { status: 400 });
       }
@@ -334,8 +349,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Internal server error";
+    if (err instanceof RouteAccessError) return handleRouteError(err);
     console.error("[Admin Ops Error]", err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Administrative operation failed." }, { status: 500, headers: { "Cache-Control": "no-store" } });
   }
 }

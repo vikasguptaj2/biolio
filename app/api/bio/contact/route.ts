@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getServerEnv } from "@/lib/server/config/env";
+import { recordAnalyticsEvent } from "@/lib/server/analytics/record";
+import { handleRouteError, RouteAccessError, verifySameOrigin } from "@/lib/server/http/guard";
 
 interface PublicBioResult {
   status: string;
@@ -22,7 +24,19 @@ interface PublicBioResult {
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({}));
+    verifySameOrigin(request);
+    const rawBody = await request.text();
+    if (rawBody.length > 12_288) {
+      return NextResponse.json({ error: { code: "REQUEST_TOO_LARGE", message: "Inquiry is too large." } }, { status: 413 });
+    }
+    let body: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(rawBody || "{}");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid body");
+      body = parsed as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ error: { code: "INVALID_BODY", message: "Inquiry must be valid JSON." } }, { status: 400 });
+    }
     const handle = String(body.handle || "").trim().toLowerCase();
     const senderName = String(body.senderName || "").trim().slice(0, 100);
     const senderEmail = String(body.senderEmail || "").trim().toLowerCase().slice(0, 255);
@@ -100,10 +114,13 @@ export async function POST(request: NextRequest) {
     }
 
     const env = getServerEnv();
+    if (env.VISITOR_HASH_SALT.length < 32) {
+      return NextResponse.json({ error: { code: "PROVIDER_NOT_READY", message: "Inquiry protection is not configured." } }, { status: 503 });
+    }
     const xff = request.headers.get("x-forwarded-for") || "127.0.0.1";
     const clientIp = xff.split(",")[0]?.trim() || "127.0.0.1";
     const ipHash = crypto
-      .createHmac("sha256", env.VISITOR_HASH_SALT || "biolio_contact_salt")
+      .createHmac("sha256", env.VISITOR_HASH_SALT)
       .update(clientIp)
       .digest("hex");
 
@@ -150,8 +167,17 @@ export async function POST(request: NextRequest) {
       status: "new",
     });
 
+    // Record bio.contact_submit analytics event (F-10)
+    await recordAnalyticsEvent({
+      workspaceId: pubBio.workspace_id,
+      bioProfileId: pubBio.bio_profile_id,
+      eventType: "bio.contact_submit",
+      headers: request.headers,
+    });
+
     return NextResponse.json({ ok: true, submitted: true });
-  } catch {
+  } catch (error) {
+    if (error instanceof RouteAccessError) return handleRouteError(error);
     return NextResponse.json(
       { error: { code: "INTERNAL_ERROR", message: "Inquiry submission failed." } },
       { status: 500 }

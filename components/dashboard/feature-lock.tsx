@@ -51,7 +51,7 @@ export function ProductLockPaywall({
         {lockReason ||
           (isAutomation
             ? "Your workspace is subscribed to Biolio Bio Standalone. To execute automated comment-to-DM funnels, upgrade to the All-in-One Bundle or add Instagram Automation to your workspace."
-            : "Your workspace is subscribed to Instagram Automation Standalone. To build and publish your atelier link-in-bio website studio, upgrade to the All-in-One Bundle or add Biolio Bio.")}
+            : "Choose a Biolio Bio plan to publish your creator website, portfolio, and journal.")}
       </p>
 
       {/* Product Feature Highlights */}
@@ -108,7 +108,7 @@ export function ProductLockPaywall({
           className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-[#f36b3f] px-6 py-3.5 text-sm font-bold text-white shadow-md hover:bg-[#e0562b] transition-colors"
         >
           <CreditCard className="h-4 w-4" />
-          Upgrade to All-in-One Bundle ($19/mo)
+          {isAutomation ? "View Automation Plans" : "Explore Biolio Bio Plans"}
           <ArrowRight className="h-4 w-4" />
         </Link>
         <Link
@@ -117,7 +117,7 @@ export function ProductLockPaywall({
         >
           {isAutomation
             ? "Switch to IG Automation Standalone"
-            : "Switch to Biolio Bio Standalone"}
+            : "Compare Bio plans"}
         </Link>
       </div>
     </div>
@@ -135,7 +135,7 @@ export interface FeatureTierBannerProps {
 export function FeatureTierBanner({
   title,
   description,
-  requiredTier = "Creator or Bundle",
+  requiredTier = "Creator or Pro",
   actionHref = "/dashboard/billing",
   actionText = "Upgrade Plan &rarr;",
 }: FeatureTierBannerProps) {
@@ -161,7 +161,7 @@ export function FeatureTierBanner({
         href={actionHref}
         className="shrink-0 rounded-xl bg-[#211b29] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#3a3040] transition-colors text-center"
       >
-        <span dangerouslySetInnerHTML={{ __html: actionText }} />
+        <span>{actionText.replaceAll("&rarr;", "→")}</span>
       </Link>
     </div>
   );

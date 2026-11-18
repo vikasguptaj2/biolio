@@ -54,9 +54,9 @@ export default async function AdminOverviewPage() {
   ]);
 
   const kpisRow1 = [
-    ["Registered users", (usersCount ?? 1).toLocaleString(), "+100% RLS isolated"],
-    ["Active workspaces", (workspacesCount ?? 1).toLocaleString(), "Multi-tenant records"],
-    ["Published Bio pages", (bioCount ?? 1).toLocaleString(), "Immutable snapshots"],
+    ["Registered users", (usersCount ?? 0).toLocaleString(), "RLS isolated"],
+    ["Active workspaces", (workspacesCount ?? 0).toLocaleString(), "Multi-tenant records"],
+    ["Published Bio pages", (bioCount ?? 0).toLocaleString(), "Immutable snapshots"],
     ["Connected Instagram", (igCount ?? 0).toLocaleString(), "Meta Graph v21.0"],
   ];
 

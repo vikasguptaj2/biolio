@@ -252,7 +252,7 @@ export async function requireSuperAdmin(options?: {
 
   if (
     options?.requireStepUp &&
-    Date.now() - session.stepUpAt > ADMIN_STEP_UP_TTL_MS * 6
+    Date.now() - session.stepUpAt > ADMIN_STEP_UP_TTL_MS
   ) {
     throw new RouteAccessError(
       403,

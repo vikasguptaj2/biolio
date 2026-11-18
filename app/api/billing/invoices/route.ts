@@ -9,11 +9,10 @@ interface CompletedSessionRow {
   id: string;
   plan_id: string;
   billing_interval: string;
-  amount_inr: number;
-  discount_inr: number;
-  final_amount_inr: number;
-  razorpay_order_id: string;
-  razorpay_payment_id: string;
+  amount_minor: number;
+  currency: string;
+  razorpay_order_id: string | null;
+  razorpay_payment_id: string | null;
   completed_at: string;
 }
 
@@ -35,9 +34,7 @@ export async function GET() {
 
     const { data: sessions, error } = (await db
       .from("checkout_sessions")
-      .select(
-        "id, plan_id, billing_interval, amount_inr, discount_inr, final_amount_inr, razorpay_order_id, razorpay_payment_id, completed_at"
-      )
+      .select("id, plan_id, billing_interval, amount_minor, currency, razorpay_order_id, razorpay_payment_id, completed_at")
       .eq("workspace_id", ctx.workspaceId)
       .eq("status", "completed")
       .order("completed_at", { ascending: false })
@@ -50,28 +47,18 @@ export async function GET() {
       );
     }
 
-    const invoices = (sessions || []).map((s) => {
-      const finalAmount = s.final_amount_inr ?? s.amount_inr;
-      const baseAmount = Math.round((finalAmount / 1.18) * 100) / 100;
-      const gstAmount = Math.round((finalAmount - baseAmount) * 100) / 100;
-
-      return {
+    const invoices = (sessions || []).map((s) => ({
         id: s.id,
         date: s.completed_at,
         plan_id: s.plan_id,
         interval: s.billing_interval,
-        total_inr: finalAmount,
-        base_inr: baseAmount,
-        gst_inr: gstAmount,
-        currency: "INR",
+        amount_minor: s.amount_minor,
+        amount: s.amount_minor / 100,
+        currency: s.currency,
         payment_id: s.razorpay_payment_id,
         order_id: s.razorpay_order_id,
         status: "paid",
-        receipt_url: `https://biolio.site/dashboard/billing?receipt=${encodeURIComponent(
-          s.id
-        )}`,
-      };
-    });
+      }));
 
     return NextResponse.json({
       ok: true,

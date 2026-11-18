@@ -23,8 +23,10 @@ export function hashCouponCode(rawCode: string): string {
   const norm = normalizeCouponCode(rawCode);
   if (!norm) return "";
   const env = getServerEnv();
-  const pepper = env.COUPON_HASH_PEPPER || "biolio_coupon_pepper_2026";
-  return crypto.createHmac("sha256", pepper).update(norm).digest("hex");
+  if (env.COUPON_HASH_PEPPER.length < 32) {
+    throw new Error("A 32-character COUPON_HASH_PEPPER is required to hash coupon codes.");
+  }
+  return crypto.createHmac("sha256", env.COUPON_HASH_PEPPER).update(norm).digest("hex");
 }
 
 export function maskCouponCode(rawCode: string): string {

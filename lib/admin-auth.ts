@@ -1,31 +1,20 @@
-import crypto from "crypto";
+import "server-only";
+import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { getServerEnv } from "@/lib/server/config/env";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-/**
- * HARDENED SINGLE-OPERATOR SUPER ADMIN AUTHENTICATION (`lib/admin-auth.ts`)
- * Closes Audit Findings: B-02, B-10, F-03, F-11
- *
- * Security Guarantees:
- * 1. Zero hard-coded fallback credentials or secrets in source code.
- * 2. Authenticates only against configured environment variables (ADMIN_EMAIL, ADMIN_PASSWORD_HASH).
- * 3. Always runs password verification in constant time to prevent timing oracles.
- * 4. Issues a 32-byte opaque random token backed by `public.admin_sessions`
- *    with 8-hour absolute TTL, 30-minute idle timeout, and 15-minute step-up window (`step_up_at`).
- */
 
 export const ADMIN_COOKIE_NAME =
   process.env.NODE_ENV === "production"
     ? "__Host-biolio_admin"
     : "biolio_admin_session";
 
-export const ADMIN_ABSOLUTE_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
-export const ADMIN_IDLE_TTL_MS = 30 * 60 * 1000; // 30 minutes
-export const ADMIN_STEP_UP_TTL_MS = 15 * 60 * 1000; // 15 minutes
+export const ADMIN_ABSOLUTE_TTL_MS = 8 * 60 * 60 * 1000;
+export const ADMIN_IDLE_TTL_MS = 30 * 60 * 1000;
+export const ADMIN_STEP_UP_TTL_MS = 15 * 60 * 1000;
 
 export interface AdminSession {
-  sessionId?: string;
+  sessionId: string;
   email: string;
   emailHash: string;
   role: "super_admin";
@@ -37,6 +26,7 @@ export interface AdminSession {
 
 interface AdminSessionRow {
   id: string;
+  email_hash: string;
   expires_at: string;
   last_seen_at: string;
   step_up_at: string;
@@ -49,254 +39,205 @@ export function sha256Hex(input: string): string {
 }
 
 export function constantTimeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a, "utf8");
-  const bufB = Buffer.from(b, "utf8");
-  if (bufA.length !== bufB.length) {
-    crypto.timingSafeEqual(bufA, bufA);
+  const left = Buffer.from(a, "utf8");
+  const right = Buffer.from(b, "utf8");
+  if (left.length !== right.length) {
+    crypto.timingSafeEqual(left, left);
     return false;
   }
-  return crypto.timingSafeEqual(bufA, bufB);
+  return crypto.timingSafeEqual(left, right);
 }
 
 function verifyScryptHash(password: string, formattedHash: string): boolean {
-  // Format: scrypt$N$r$p$saltHex$hashHex
   const parts = formattedHash.split("$");
-  if (parts.length !== 6 || parts[0] !== "scrypt") {
-    return false;
-  }
-  const N = Number(parts[1]) || 16384;
-  const r = Number(parts[2]) || 8;
-  const p = Number(parts[3]) || 1;
+  if (parts.length !== 6 || parts[0] !== "scrypt") return false;
+
+  const N = Number(parts[1]);
+  const r = Number(parts[2]);
+  const p = Number(parts[3]);
   const salt = Buffer.from(parts[4], "hex");
   const expected = Buffer.from(parts[5], "hex");
-  if (salt.length === 0 || expected.length === 0) return false;
+  if (
+    !Number.isSafeInteger(N) || N < 8192 || N > 262144 || (N & (N - 1)) !== 0 ||
+    !Number.isSafeInteger(r) || r < 1 || r > 16 ||
+    !Number.isSafeInteger(p) || p < 1 || p > 4 ||
+    salt.length < 16 || expected.length !== 64
+  ) return false;
 
-  const derived = crypto.scryptSync(password, salt, expected.length, {
-    N,
-    r,
-    p,
-  });
+  const derived = crypto.scryptSync(password, salt, expected.length, { N, r, p });
   return crypto.timingSafeEqual(derived, expected);
 }
 
-/**
- * Generates a scrypt password hash string suitable for `ADMIN_PASSWORD_HASH` in `.env.local`.
- */
 export function createScryptPasswordHash(password: string): string {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const derived = crypto
-    .scryptSync(password, Buffer.from(salt, "hex"), 64, {
-      N: 16384,
-      r: 8,
-      p: 1,
-    })
-    .toString("hex");
-  return `scrypt$16384$8$1$${salt}$${derived}`;
+  const salt = crypto.randomBytes(16);
+  const derived = crypto.scryptSync(password, salt, 64, {
+    N: 16384,
+    r: 8,
+    p: 1,
+  });
+  return `scrypt$16384$8$1$${salt.toString("hex")}$${derived.toString("hex")}`;
 }
 
-/**
- * Verifies email and password against server-only environment secrets in constant time.
- * Never uses hardcoded emails or passwords (Closes F-11).
- */
 export function verifyAdminCredentials(
   inputEmail: string,
   inputPassword: string
 ): { ok: boolean; configured: boolean } {
   const env = getServerEnv();
-  const configuredEmail = env.ADMIN_EMAIL;
-  const superEmail = env.ADMIN_SUPER_EMAIL;
-  const configuredHash = env.ADMIN_PASSWORD_HASH;
-  const configuredPlain = env.ADMIN_SUPER_PASSWORD;
+  const email = env.ADMIN_EMAIL;
+  const passwordHash = env.ADMIN_PASSWORD_HASH;
+  const configured = Boolean(email && passwordHash.startsWith("scrypt$"));
 
-  if (!configuredEmail || (!configuredHash && !configuredPlain)) {
-    return { ok: false, configured: false };
-  }
-
-  const normalizedInputEmail = (inputEmail || "").trim().toLowerCase();
-  const allowedEmails = [configuredEmail, superEmail]
-    .filter(Boolean)
-    .map((e) => e.trim().toLowerCase());
-
-  const emailMatch = allowedEmails.some((allowed) =>
-    constantTimeCompare(normalizedInputEmail, allowed)
-  );
-
+  // Keep the expensive password path for unknown emails too, reducing timing
+  // differences that could reveal the configured operator address.
   let passwordMatch = false;
-  if (configuredHash && configuredHash.startsWith("scrypt$")) {
-    passwordMatch = verifyScryptHash(inputPassword || "", configuredHash);
-  } else if (configuredPlain && configuredPlain.length >= 12) {
-    passwordMatch = constantTimeCompare(inputPassword || "", configuredPlain);
-  } else {
-    // Perform dummy scrypt work so timing is uniform
-    crypto.scryptSync(inputPassword || "dummy", "biolio_dummy_salt", 64);
+  try {
+    passwordMatch = configured
+      ? verifyScryptHash(inputPassword || "", passwordHash)
+      : verifyScryptHash(
+          inputPassword || "",
+          "scrypt$16384$8$1$62696f6c696f2d64756d6d792d73616c74$" + "00".repeat(64)
+        );
+  } catch {
     passwordMatch = false;
   }
 
-  return { ok: emailMatch && passwordMatch, configured: true };
+  const emailMatch = constantTimeCompare(
+    (inputEmail || "").trim().toLowerCase(),
+    email || "operator-not-configured"
+  );
+  return { ok: configured && emailMatch && passwordMatch, configured };
 }
 
-/**
- * Issues a cryptographically signed HMAC admin token backed by `public.admin_sessions`.
- */
+function digestSessionToken(token: string, secret: string): string {
+  return crypto.createHmac("sha256", secret).update(token, "utf8").digest("hex");
+}
+
+function requireSessionSecret(): string {
+  const secret = getServerEnv().ADMIN_SESSION_SECRET;
+  if (secret.length < 32) {
+    throw new Error("ADMIN_SESSION_SECRET must contain at least 32 characters.");
+  }
+  return secret;
+}
+
+/** Persisted opaque sessions fail closed when the session table is unavailable. */
 export async function issueAdminSession(params: {
   ipAddress: string;
   userAgent: string;
 }): Promise<{ token: string; session: AdminSession }> {
   const env = getServerEnv();
-  if (!env.ADMIN_SESSION_SECRET || env.ADMIN_SESSION_SECRET.length < 16) {
-    throw new Error(
-      "ADMIN_SESSION_SECRET must be configured in environment variables (min 16 chars)."
-    );
+  const secret = requireSessionSecret();
+  if (!env.ADMIN_EMAIL || !env.ADMIN_PASSWORD_HASH.startsWith("scrypt$")) {
+    throw new Error("Admin credentials are not configured securely.");
   }
 
   const now = Date.now();
-  const rawOpaque = crypto.randomBytes(32).toString("base64url");
-  const tokenHash = sha256Hex(rawOpaque);
+  const token = crypto.randomBytes(32).toString("base64url");
+  const tokenHash = digestSessionToken(token, secret);
   const emailHash = sha256Hex(env.ADMIN_EMAIL);
-  const ipHash = sha256Hex(params.ipAddress || "unknown");
-  const uaHash = sha256Hex(params.userAgent || "unknown");
+  const expiresAt = now + ADMIN_ABSOLUTE_TTL_MS;
+  const adminDb = createAdminClient();
+  const result = await (adminDb.from("admin_sessions" as never) as unknown as {
+    insert: (row: Record<string, unknown>) => {
+      select: (columns: string) => {
+        single: () => Promise<{ data: { id: string } | null; error: unknown }>;
+      };
+    };
+  })
+    .insert({
+      token_hash: tokenHash,
+      email_hash: emailHash,
+      expires_at: new Date(expiresAt).toISOString(),
+      step_up_at: new Date(now).toISOString(),
+      last_seen_at: new Date(now).toISOString(),
+      ip_hash: sha256Hex(params.ipAddress || "unknown"),
+      user_agent_hash: sha256Hex(params.userAgent || "unknown"),
+      epoch: env.ADMIN_SESSION_EPOCH,
+    })
+    .select("id")
+    .single();
 
-  const session: AdminSession = {
-    email: env.ADMIN_EMAIL,
-    emailHash,
-    role: "super_admin",
-    issuedAt: now,
-    expiresAt: now + ADMIN_ABSOLUTE_TTL_MS,
-    stepUpAt: now,
-    epoch: env.ADMIN_SESSION_EPOCH,
-  };
-
-  // Persist session in public.admin_sessions
-  try {
-    const adminDb = createAdminClient();
-    const { data } = await (
-      adminDb.from("admin_sessions" as never) as unknown as {
-        insert: (row: Record<string, unknown>) => {
-          select: (cols: string) => {
-            single: () => Promise<{ data: { id: string } | null }>;
-          };
-        };
-      }
-    )
-      .insert({
-        token_hash: tokenHash,
-        email_hash: emailHash,
-        expires_at: new Date(session.expiresAt).toISOString(),
-        step_up_at: new Date(session.stepUpAt).toISOString(),
-        ip_hash: ipHash,
-        user_agent_hash: uaHash,
-        epoch: env.ADMIN_SESSION_EPOCH,
-      })
-      .select("id")
-      .single();
-
-    if (data?.id) {
-      session.sessionId = data.id;
-    }
-  } catch {
-    // Continue with signed token fallback if table is not yet migrated
+  if (result.error || !result.data?.id) {
+    throw new Error("Could not persist the admin session.");
   }
 
-  const payloadB64 = Buffer.from(
-    JSON.stringify({ ...session, rawOpaque }),
-    "utf8"
-  ).toString("base64url");
-  const sig = crypto
-    .createHmac("sha256", env.ADMIN_SESSION_SECRET)
-    .update(payloadB64)
-    .digest("base64url");
-
-  return { token: `${payloadB64}.${sig}`, session };
+  return {
+    token,
+    session: {
+      sessionId: result.data.id,
+      email: env.ADMIN_EMAIL,
+      emailHash,
+      role: "super_admin",
+      issuedAt: now,
+      expiresAt,
+      stepUpAt: now,
+      epoch: env.ADMIN_SESSION_EPOCH,
+    },
+  };
 }
 
-/**
- * Verifies the admin session cookie against `ADMIN_SESSION_SECRET`, `ADMIN_SESSION_EPOCH`,
- * and `public.admin_sessions` revocation/idle state.
- */
+/** The cookie is an opaque bearer token; every request must resolve a live DB row. */
 export async function getVerifiedAdminSession(): Promise<AdminSession | null> {
   const env = getServerEnv();
-  if (!env.ADMIN_SESSION_SECRET || env.ADMIN_SESSION_SECRET.length < 16) {
+  if (!env.ADMIN_EMAIL || !env.ADMIN_PASSWORD_HASH.startsWith("scrypt$")) return null;
+
+  let secret: string;
+  try {
+    secret = requireSessionSecret();
+  } catch {
     return null;
   }
 
   const cookieStore = await cookies();
-  const cookieValue =
-    cookieStore.get(ADMIN_COOKIE_NAME)?.value ||
-    cookieStore.get("biolio_admin_session")?.value;
-
-  if (!cookieValue || !cookieValue.includes(".")) return null;
-  const [payloadB64, sig] = cookieValue.split(".");
-  if (!payloadB64 || !sig) return null;
-
-  const expectedSig = crypto
-    .createHmac("sha256", env.ADMIN_SESSION_SECRET)
-    .update(payloadB64)
-    .digest("base64url");
-
-  if (!constantTimeCompare(sig, expectedSig)) {
-    return null;
-  }
+  const token = cookieStore.get(ADMIN_COOKIE_NAME)?.value ||
+    (process.env.NODE_ENV !== "production" ? cookieStore.get("biolio_admin_session")?.value : "") || "";
+  if (!/^[A-Za-z0-9_-]{40,50}$/.test(token)) return null;
 
   try {
-    const parsed = JSON.parse(
-      Buffer.from(payloadB64, "base64url").toString("utf8")
-    ) as AdminSession & { rawOpaque?: string };
+    const adminDb = createAdminClient();
+    const query = (adminDb.from("admin_sessions" as never) as unknown as {
+      select: (columns: string) => {
+        eq: (column: string, value: string) => {
+          maybeSingle: () => Promise<{ data: AdminSessionRow | null; error: unknown }>;
+        };
+      };
+    }).select("id, email_hash, expires_at, last_seen_at, step_up_at, epoch, revoked_at");
+    const { data: row, error } = await query
+      .eq("token_hash", digestSessionToken(token, secret))
+      .maybeSingle();
 
-    if (!parsed || parsed.role !== "super_admin") return null;
-    if (Date.now() > parsed.expiresAt) return null;
-    if (parsed.epoch !== env.ADMIN_SESSION_EPOCH) return null;
+    if (error || !row) return null;
+    const now = Date.now();
+    const expiresAt = new Date(row.expires_at).getTime();
+    const lastSeenAt = new Date(row.last_seen_at).getTime();
+    if (
+      row.revoked_at ||
+      row.epoch !== env.ADMIN_SESSION_EPOCH ||
+      !constantTimeCompare(row.email_hash, sha256Hex(env.ADMIN_EMAIL)) ||
+      !Number.isFinite(expiresAt) || expiresAt <= now ||
+      !Number.isFinite(lastSeenAt) || now - lastSeenAt > ADMIN_IDLE_TTL_MS
+    ) return null;
 
-    parsed.email = parsed.email || env.ADMIN_EMAIL;
-
-    // Verify server-side session row if rawOpaque is present
-    if (parsed.rawOpaque) {
-      const tokenHash = sha256Hex(parsed.rawOpaque);
-      try {
-        const adminDb = createAdminClient();
-        const { data: dbRow } = await (
-          adminDb.from("admin_sessions" as never) as unknown as {
-            select: (cols: string) => {
-              eq: (col: string, val: string) => {
-                maybeSingle: () => Promise<{ data: AdminSessionRow | null }>;
-              };
-            };
-          }
-        )
-          .select(
-            "id, expires_at, last_seen_at, step_up_at, epoch, revoked_at"
-          )
-          .eq("token_hash", tokenHash)
-          .maybeSingle();
-
-        if (dbRow) {
-          if (dbRow.revoked_at) return null;
-          if (dbRow.epoch !== env.ADMIN_SESSION_EPOCH) return null;
-          if (new Date(dbRow.expires_at).getTime() < Date.now()) return null;
-          const lastSeen = new Date(dbRow.last_seen_at).getTime();
-          if (Date.now() - lastSeen > ADMIN_IDLE_TTL_MS) return null;
-
-          // Update last_seen_at at most once per minute
-          if (Date.now() - lastSeen > 60_000) {
-            await (
-              adminDb.from("admin_sessions" as never) as unknown as {
-                update: (vals: Record<string, unknown>) => {
-                  eq: (col: string, val: string) => Promise<unknown>;
-                };
-              }
-            )
-              .update({ last_seen_at: new Date().toISOString() })
-              .eq("id", dbRow.id);
-          }
-
-          parsed.sessionId = dbRow.id;
-          parsed.stepUpAt = new Date(dbRow.step_up_at).getTime();
-        }
-      } catch {
-        // Fallback to signed payload
-      }
+    if (now - lastSeenAt > 60_000) {
+      const update = (adminDb.from("admin_sessions" as never) as unknown as {
+        update: (values: Record<string, unknown>) => {
+          eq: (column: string, value: string) => Promise<{ error: unknown }>;
+        };
+      }).update({ last_seen_at: new Date(now).toISOString() });
+      const { error: updateError } = await update.eq("id", row.id);
+      if (updateError) return null;
     }
 
-    return parsed;
+    return {
+      sessionId: row.id,
+      email: env.ADMIN_EMAIL,
+      emailHash: row.email_hash,
+      role: "super_admin",
+      issuedAt: lastSeenAt,
+      expiresAt,
+      stepUpAt: new Date(row.step_up_at).getTime(),
+      epoch: row.epoch,
+    };
   } catch {
     return null;
   }

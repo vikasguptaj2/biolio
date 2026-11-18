@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   CreditCard,
   CheckCircle2,
   AlertCircle,
   Tag,
   ArrowRight,
-  Zap,
   Globe,
   Loader2,
   ShieldCheck,
@@ -22,25 +21,36 @@ interface WorkspaceData {
 
 interface EntitlementData {
   bio_tier?: string;
-  ig_tier?: string;
   bio_max_links?: number | null;
   bio_max_gallery_items?: number | null;
   bio_max_blog_posts?: number | null;
   bio_custom_themes?: boolean;
   bio_remove_branding?: boolean;
   bio_export_analytics?: boolean;
-  automation_max_active_rules?: number | null;
-  automation_monthly_action_quota?: number;
-  automation_monthly_actions_used?: number;
-  automation_public_replies_enabled?: boolean;
   bio_state?: string;
-  ig_state?: string;
+}
+
+interface BillingPlan {
+  id: string;
+  version: number;
+  name: string;
+  module: string;
+  tier: string;
+  currency: string;
+  price_monthly_minor: number;
+  price_annual_minor: number;
+  entitlements: Record<string, unknown>;
+}
+
+interface CurrentSubscription {
+  status: string;
+  current_period_end: string;
+  billing_interval: string;
+  plan_id: string;
 }
 
 interface CouponStatus {
   valid: boolean;
-  discountPercent?: number;
-  finalAmountMinor?: number;
   message: string;
 }
 
@@ -71,6 +81,7 @@ declare global {
   interface Window {
     Razorpay?: new (options: RazorpayOptions) => {
       open: () => void;
+      on: (event: "payment.failed", callback: (event: { error?: { description?: string } }) => void) => void;
     };
   }
 }
@@ -88,49 +99,12 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
-const UPGRADE_PLANS = [
-  {
-    id: "bundle_creator",
-    name: "Bundle Creator",
-    module: "bundle",
-    monthlyPrice: 599,
-    annualPrice: 5990,
-    badge: "Recommended · Save 25%",
-    description: "Bio Website Studio + 2,500 Instagram automated DMs/month.",
-  },
-  {
-    id: "bundle_pro",
-    name: "Bundle Pro",
-    module: "bundle",
-    monthlyPrice: 1199,
-    annualPrice: 11990,
-    badge: "Scale & Agency",
-    description: "White-label branding removal, unlimited content + 25,000 DMs/month.",
-  },
-  {
-    id: "bio_creator",
-    name: "Bio Creator",
-    module: "bio",
-    monthlyPrice: 299,
-    annualPrice: 2990,
-    badge: "Bio Standalone",
-    description: "All 17 templates, 30 gallery showcases, and 20 micro-blog essays.",
-  },
-  {
-    id: "ig_creator",
-    name: "Automation Creator",
-    module: "automation",
-    monthlyPrice: 499,
-    annualPrice: 4990,
-    badge: "Automation Standalone",
-    description: "5 active rules and 2,500 deterministic comment-to-DM responses/month.",
-  },
-];
-
 export default function BillingDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [entitlements, setEntitlements] = useState<EntitlementData | null>(null);
+  const [plans, setPlans] = useState<BillingPlan[]>([]);
+  const [subscription, setSubscription] = useState<CurrentSubscription | null>(null);
   const [userEmail, setUserEmail] = useState("");
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("annual");
 
@@ -139,6 +113,7 @@ export default function BillingDashboardPage() {
   const [validatingCoupon, setValidatingCoupon] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [checkoutMessage, setCheckoutMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const idempotencyByPlan = useRef(new Map<string, string>());
 
   useEffect(() => {
     async function loadBilling() {
@@ -176,6 +151,25 @@ export default function BillingDashboardPage() {
           .single();
 
         setEntitlements(ent as unknown as EntitlementData);
+
+        const { data: availablePlans } = await supabase
+          .from("billing_plans" as never)
+          .select("id, version, name, module, tier, currency, price_monthly_minor, price_annual_minor, entitlements")
+          .eq("is_active_for_sale", true)
+          .eq("module", "bio")
+          .order("sort_order", { ascending: true });
+        setPlans((availablePlans || []) as unknown as BillingPlan[]);
+
+        const { data: currentPlan } = await supabase
+          .from("subscriptions" as never)
+          .select("status, current_period_end, billing_interval, plan_id")
+          .eq("workspace_id", member.workspace_id)
+          .eq("module", "bio")
+          .in("status", ["trialing", "active", "past_due"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        setSubscription(currentPlan as unknown as CurrentSubscription | null);
       } catch (err) {
         console.error("Error loading billing", err);
       } finally {
@@ -201,8 +195,8 @@ export default function BillingDashboardPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: clean,
-          planId: "bundle_creator",
-          planVersion: 1,
+          planId: plans[0]?.id || "bio_creator",
+          planVersion: plans[0]?.version || 1,
           billingInterval,
         }),
       });
@@ -211,9 +205,7 @@ export default function BillingDashboardPage() {
       if (res.ok && data.valid) {
         setCouponStatus({
           valid: true,
-          discountPercent: data.discountValue || 20,
-          finalAmountMinor: data.finalAmountMinor,
-          message: data.message || `Coupon "${clean}" verified!`,
+          message: data.message || `Coupon "${clean}" is valid. The final discount is confirmed for the selected plan at checkout.`,
         });
       } else {
         setCouponStatus({
@@ -234,15 +226,26 @@ export default function BillingDashboardPage() {
   const handleStartCheckout = async (planId: string) => {
     setCheckoutLoading(planId);
     setCheckoutMessage(null);
+    const plan = plans.find((candidate) => candidate.id === planId);
+    if (!plan) {
+      setCheckoutMessage({ type: "error", text: "This plan is no longer available. Reload the page to refresh plan details." });
+      setCheckoutLoading(null);
+      return;
+    }
+    let idempotencyKey = idempotencyByPlan.current.get(planId);
+    if (!idempotencyKey) {
+      idempotencyKey = crypto.randomUUID();
+      idempotencyByPlan.current.set(planId, idempotencyKey);
+    }
 
     try {
       // 1. Initialize checkout session on server
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
         body: JSON.stringify({
           planId,
-          planVersion: 1,
+          planVersion: plan.version,
           billingInterval,
           couponCode: couponStatus?.valid ? couponCode.trim().toUpperCase() : undefined,
         }),
@@ -274,13 +277,12 @@ export default function BillingDashboardPage() {
           color: "#f36b3f",
         },
         handler: () => {
+          idempotencyByPlan.current.delete(planId);
           setCheckoutMessage({
             type: "success",
-            text: "Payment captured! Webhook is confirming your subscription and projecting entitlements.",
+            text: "Razorpay confirmed your payment. Biolio is waiting for the signed payment notification before activating your plan.",
           });
-          setTimeout(() => {
-            window.location.reload();
-          }, 2000);
+          void pollCheckoutStatus(data.checkoutSessionId);
         },
         modal: {
           ondismiss: () => {
@@ -288,15 +290,50 @@ export default function BillingDashboardPage() {
           },
         },
       });
+      rzp.on("payment.failed", (event) => {
+        setCheckoutMessage({
+          type: "error",
+          text: event.error?.description || "Razorpay could not complete this payment.",
+        });
+        setCheckoutLoading(null);
+      });
 
       rzp.open();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Checkout error occurred.";
       setCheckoutMessage({ type: "error", text: msg });
-    } finally {
       setCheckoutLoading(null);
     }
   };
+
+  async function pollCheckoutStatus(sessionId: string) {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      try {
+        const response = await fetch(`/api/billing/status?sessionId=${encodeURIComponent(sessionId)}`, {
+          cache: "no-store",
+        });
+        const data = await response.json();
+        if (!response.ok) continue;
+        if (data.status === "completed") {
+          setCheckoutMessage({ type: "success", text: "Payment verified. Your Biolio Bio plan is active." });
+          window.location.reload();
+          return;
+        }
+        if (data.status === "failed" || data.status === "expired") {
+          setCheckoutMessage({ type: "error", text: "Payment was not completed. Your plan has not changed." });
+          return;
+        }
+      } catch {
+        // Keep polling briefly; the webhook may arrive after the checkout callback.
+      }
+    }
+    setCheckoutMessage({
+      type: "success",
+      text: "Payment confirmation is still processing. Your plan will update after Razorpay’s signed notification arrives.",
+    });
+    setCheckoutLoading(null);
+  }
 
   if (loading) {
     return (
@@ -308,7 +345,6 @@ export default function BillingDashboardPage() {
   }
 
   const bioActive = entitlements?.bio_state !== "locked";
-  const igActive = entitlements?.ig_state !== "locked";
 
   return (
     <div className="p-6 lg:p-10 max-w-7xl mx-auto space-y-8">
@@ -365,7 +401,7 @@ export default function BillingDashboardPage() {
           </div>
         </div>
 
-        {/* Product Module Status Cards */}
+        {/* Product Status */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] p-5 space-y-2">
             <div className="flex items-center justify-between">
@@ -386,31 +422,24 @@ export default function BillingDashboardPage() {
             <p className="text-[11px] text-[#7c727e]">
               {bioActive
                 ? `Max links: ${entitlements?.bio_max_links ?? "Unlimited"} • Gallery: ${entitlements?.bio_max_gallery_items ?? "Unlimited"} • Blog essays: ${entitlements?.bio_max_blog_posts ?? "Unlimited"}`
-                : "Bio Studio is locked. Subscribe to Bio Creator or All-in-One Bundle to unlock."}
+                : "Bio Studio is locked. Choose a Biolio Bio plan to restore editing and publishing."}
             </p>
           </div>
 
           <div className="rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] p-5 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold flex items-center gap-1.5 text-[#211b29]">
-                <Zap className="h-4 w-4 text-[#f36b3f]" />
-                Instagram Automation
-              </span>
-              <span
-                className={`rounded px-2 py-0.5 text-[10px] font-extrabold uppercase ${
-                  igActive
-                    ? "bg-[#e4f1eb] text-[#277a67]"
-                    : "bg-[#fde8eb] text-[#a62639]"
-                }`}
-              >
-                {igActive ? (entitlements?.ig_tier || "Active") : "Locked"}
-              </span>
-            </div>
-            <p className="text-[11px] text-[#7c727e]">
-              {igActive
-                ? `Monthly quota: ${entitlements?.automation_monthly_actions_used ?? 0} / ${entitlements?.automation_monthly_action_quota ?? 100} DMs • Max rules: ${entitlements?.automation_max_active_rules ?? "Unlimited"}`
-                : "Instagram DM automation is locked. Subscribe to IG Creator or All-in-One Bundle to unlock."}
-            </p>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[#7c727e]">Current subscription</div>
+            {subscription ? (
+              <>
+                <div className="font-editorial text-lg font-bold text-[#211b29]">
+                  {plans.find((plan) => plan.id === subscription.plan_id)?.name || subscription.plan_id}
+                </div>
+                <p className="text-[11px] text-[#7c727e]">
+                  {subscription.status === "active" ? "Active" : subscription.status.replaceAll("_", " ")} · Renews or ends {new Date(subscription.current_period_end).toLocaleDateString()}
+                </p>
+              </>
+            ) : (
+              <p className="text-[11px] text-[#7c727e]">No paid Biolio Bio subscription is active for this workspace.</p>
+            )}
           </div>
         </div>
       </div>
@@ -423,7 +452,7 @@ export default function BillingDashboardPage() {
               Upgrade or Switch Plans
             </h2>
             <p className="text-xs text-[#7c727e]">
-              Prices in INR (₹). Authoritative quotes and Razorpay payment orders generated server-side.
+              Live plan prices from the Biolio billing catalog. Razorpay orders and final coupon amounts are created server-side.
             </p>
           </div>
 
@@ -450,22 +479,32 @@ export default function BillingDashboardPage() {
               }`}
             >
               Annual
-              <span className="rounded bg-[#277a67]/20 px-1.5 py-0.2 text-[9px] text-[#277a67] font-extrabold">
-                -17%
-              </span>
+              {plans[0] && plans[0].price_monthly_minor > 0 && (
+                <span className="rounded bg-[#277a67]/20 px-1.5 py-0.2 text-[9px] text-[#277a67] font-extrabold">
+                  {Math.max(0, Math.round((1 - plans[0].price_annual_minor / (plans[0].price_monthly_minor * 12)) * 100))}% less
+                </span>
+              )}
             </button>
           </div>
         </div>
 
         {/* Upgrade Plan Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {UPGRADE_PLANS.map((plan) => {
-            const rawPrice =
-              billingInterval === "annual" ? plan.annualPrice : plan.monthlyPrice;
-            const finalPrice =
-              couponStatus?.valid && couponStatus.discountPercent
-                ? Math.round(rawPrice * (1 - couponStatus.discountPercent / 100))
-                : rawPrice;
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {plans.map((plan) => {
+            const rawPriceMinor = billingInterval === "annual"
+              ? plan.price_annual_minor
+              : plan.price_monthly_minor;
+            const maximumLinks = plan.entitlements["bio.max_links"];
+            const maximumGallery = plan.entitlements["bio.max_gallery_items"];
+            const maximumPosts = plan.entitlements["bio.max_blog_posts"];
+            const featureSummary = [
+              `${maximumLinks == null ? "Unlimited" : maximumLinks} links`,
+              `${maximumGallery == null ? "Unlimited" : maximumGallery} portfolio items`,
+              `${maximumPosts == null ? "Unlimited" : maximumPosts} articles`,
+              plan.entitlements["bio.custom_themes"] ? "Custom themes" : null,
+              plan.entitlements["bio.export_analytics"] ? "Analytics export" : null,
+            ].filter(Boolean).join(" · ");
+            const isCurrent = subscription?.plan_id === plan.id && subscription.status === "active";
 
             return (
               <div
@@ -474,33 +513,31 @@ export default function BillingDashboardPage() {
               >
                 <div>
                   <div className="inline-flex rounded-full bg-[#f3ece2] px-2.5 py-0.5 text-[10px] font-bold text-[#211b29] mb-2">
-                    {plan.badge}
+                    {plan.tier} · from billing catalog
                   </div>
                   <h3 className="font-editorial text-xl font-bold text-[#211b29]">
                     {plan.name}
                   </h3>
                   <p className="text-[11px] text-[#7c727e] mt-1 leading-relaxed">
-                    {plan.description}
+                    {featureSummary}
                   </p>
 
                   <div className="mt-4 flex items-baseline gap-1.5">
                     <span className="font-editorial text-3xl font-bold text-[#211b29]">
-                      ₹{finalPrice.toLocaleString("en-IN")}
+                      ₹{(rawPriceMinor / 100).toLocaleString("en-IN")}
                     </span>
                     <span className="text-[11px] text-[#7c727e]">
                       {billingInterval === "annual" ? "/yr" : "/mo"}
                     </span>
-                    {couponStatus?.valid && (
-                      <span className="line-through text-[11px] text-[#a99eb5]">
-                        ₹{rawPrice.toLocaleString("en-IN")}
-                      </span>
-                    )}
                   </div>
+                  {couponStatus?.valid && (
+                    <div className="mt-1 text-[10px] text-[#277a67]">Coupon will be recalculated for this plan during checkout.</div>
+                  )}
                 </div>
 
                 <button
                   type="button"
-                  disabled={checkoutLoading === plan.id}
+                  disabled={checkoutLoading === plan.id || isCurrent}
                   onClick={() => handleStartCheckout(plan.id)}
                   className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#211b29] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#3a3040] disabled:opacity-50 transition-colors shadow-xs"
                 >
@@ -508,7 +545,7 @@ export default function BillingDashboardPage() {
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <>
-                      Upgrade with Razorpay
+                      {isCurrent ? "Current plan" : `Continue with Razorpay`}
                       <ArrowRight className="h-3.5 w-3.5 text-[#f36b3f]" />
                     </>
                   )}

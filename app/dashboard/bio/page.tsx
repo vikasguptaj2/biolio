@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { BIO_TEMPLATES } from "@/lib/design-tokens";
+import { CloudinaryUpload } from "@/components/media/cloudinary-upload";
 import type { EvaluatedWorkspaceEntitlements } from "@/lib/entitlements";
 import {
   ProductLockPaywall,
@@ -18,7 +19,10 @@ import {
   Lock,
   Copy,
   Eye,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
+import { parsePublicVideoLink } from "@/lib/video-links";
 
 type BuilderSection =
   | "content"
@@ -40,6 +44,18 @@ interface InquiryItem {
   message: string;
 }
 
+const PAGE_SECTIONS = [
+  { key: "links", title: "Smart links & socials", desc: "Your primary destinations", icon: "↗" },
+  { key: "featured_work", title: "Featured work", desc: "One project visitors should see first", icon: "✦" },
+  { key: "gallery", title: "Portfolio gallery", desc: "Images and linked video work", icon: "▦" },
+  { key: "collaborations", title: "Brand collaborations", desc: "Partnerships and client work", icon: "◈" },
+  { key: "blog", title: "Blog & journal", desc: "Long-form notes and essays", icon: "▤" },
+  { key: "about", title: "About me", desc: "Your longer introduction", icon: "Aa" },
+  { key: "contact", title: "Contact inquiries", desc: "Messages from brands and visitors", icon: "✉" },
+] as const;
+
+const DEFAULT_PAGE_SECTION_ORDER = PAGE_SECTIONS.map((section) => section.key);
+
 export default function BioStudioPage() {
   const [activeTab, setActiveTab] = useState<BuilderSection>("content");
   const [loading, setLoading] = useState(true);
@@ -50,13 +66,18 @@ export default function BioStudioPage() {
   const [entitlements, setEntitlements] =
     useState<EvaluatedWorkspaceEntitlements | null>(null);
   const [handle, setHandle] = useState("");
+  const [bioProfileId, setBioProfileId] = useState("");
+  const [avatarMediaId, setAvatarMediaId] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [coverMediaId, setCoverMediaId] = useState<string | null>(null);
+  const [coverUrl, setCoverUrl] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [tagline, setTagline] = useState("");
   const [shortBio, setShortBio] = useState("");
-  const [category, setCategory] = useState("Photography & Travel");
+  const [category, setCategory] = useState("");
   const [location, setLocation] = useState("");
-  const [igFollowers, setIgFollowers] = useState("128K");
-  const [ytSubscribers, setYtSubscribers] = useState("42.8K");
+  const [igFollowers, setIgFollowers] = useState("");
+  const [ytSubscribers, setYtSubscribers] = useState("");
   const [templateId, setTemplateId] = useState("sunday-studio");
   const [showBiolioBranding, setShowBiolioBranding] = useState(true);
   const [seoTitle, setSeoTitle] = useState("");
@@ -76,6 +97,7 @@ export default function BioStudioPage() {
     services: false,
     contact: true,
   });
+  const [sectionOrder, setSectionOrder] = useState<string[]>([...DEFAULT_PAGE_SECTION_ORDER]);
 
   const [links, setLinks] = useState<
     Array<{
@@ -91,8 +113,12 @@ export default function BioStudioPage() {
     Array<{
       id?: string;
       title: string;
+      caption: string;
       external_url: string;
       category: string;
+      media_asset_id?: string | null;
+      media_type: "image" | "video_embed";
+      is_featured: boolean;
     }>
   >([]);
 
@@ -121,6 +147,17 @@ export default function BioStudioPage() {
 
   const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
 
+  function movePageSection(sectionKey: string, direction: -1 | 1) {
+    setSectionOrder((current) => {
+      const from = current.indexOf(sectionKey);
+      const to = from + direction;
+      if (from < 0 || to < 0 || to >= current.length) return current;
+      const next = [...current];
+      [next[from], next[to]] = [next[to], next[from]];
+      return next;
+    });
+  }
+
   function showToast(msg: string) {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 3000);
@@ -135,7 +172,7 @@ export default function BioStudioPage() {
           if (data?.error?.code === "MODULE_LOCKED") {
             setEntitlements({
               activePlanId: "ig_creator",
-              activePlanLabel: "Instagram Automation Standalone",
+              activePlanLabel: "Biolio plan",
               activeScope: "automation_only",
               scope: "automation_only",
               bioState: "locked",
@@ -169,32 +206,37 @@ export default function BioStudioPage() {
 
         setEntitlements(data.entitlements);
         const p = data.profile || {};
-        setHandle(p.handle || data.workspace?.slug || "creator");
+        setBioProfileId(p.id || "");
+        setAvatarMediaId(p.avatar_media_id || null);
+        setCoverMediaId(p.cover_media_id || null);
+        setAvatarUrl(p.avatar_url || "");
+        setCoverUrl(p.cover_url || "");
+        setHandle(p.handle || data.workspace?.slug || "");
         setDisplayName(
-          p.display_name || data.workspace?.name || "Alex Morgan"
+          p.display_name || data.workspace?.name || ""
         );
-        setTagline(p.tagline || "Photographer · Visual Storyteller");
-        setShortBio(
-          p.short_bio ||
-            p.about_story ||
-            "Visual storyteller, photographer & occasional over-packer. Finding beauty in the in-between."
-        );
-        setCategory(p.category || "Photography & Travel");
-        setLocation(p.location || "Copenhagen / New York");
+        setTagline(p.tagline || "");
+        setShortBio(p.short_bio || p.about_story || "");
+        setCategory(p.category || "");
+        setLocation(p.location || "");
         setTemplateId(p.template_id || "sunday-studio");
         setSeoTitle(
           p.seo_title ||
-            `${p.display_name || "Creator"} — Portfolio & Visual Stories`
+            (p.display_name ? `${p.display_name} — Creator Website` : "")
         );
         setSeoDescription(
           p.seo_description ||
             p.short_bio ||
-            "Explore selected work, collaborations and notes."
+            ""
         );
         setAllowIndexing(Boolean(p.allow_indexing ?? true));
 
         if (p.sections_visibility) {
           setSectionsVisibility(p.sections_visibility);
+        }
+        if (Array.isArray(p.section_order)) {
+          const requested = p.section_order.filter((key: string) => DEFAULT_PAGE_SECTION_ORDER.includes(key as typeof DEFAULT_PAGE_SECTION_ORDER[number]));
+          setSectionOrder([...new Set([...requested, ...DEFAULT_PAGE_SECTION_ORDER])]);
         }
         if (p.theme_config && typeof p.theme_config === "object") {
           const tc = p.theme_config as Record<string, unknown>;
@@ -221,58 +263,24 @@ export default function BioStudioPage() {
             }))
           );
         } else {
-          setLinks([
-            {
-              title: "Explore my latest work",
-              url: "https://biolio.site",
-              icon: "✦",
-              is_visible: true,
-            },
-            {
-              title: "YouTube · Behind the scenes",
-              url: "https://youtube.com",
-              icon: "▶",
-              is_visible: true,
-            },
-            {
-              title: "Work with me",
-              url: "https://biolio.site/pricing",
-              icon: "↗",
-              is_visible: true,
-            },
-          ]);
+          setLinks([]);
         }
 
         if (Array.isArray(data.gallery) && data.gallery.length > 0) {
           setGalleryItems(
-            data.gallery.map((g: { id?: string; title: string; external_url?: string; category?: string }) => ({
+            data.gallery.map((g: { id?: string; title: string; caption?: string | null; external_url?: string; category?: string; media_asset_id?: string | null; media_type?: string; is_featured?: boolean }) => ({
               id: g.id,
               title: g.title,
+              caption: g.caption || "",
               external_url: g.external_url || "",
-              category: g.category || "Travel",
+              category: g.category || "General",
+              media_asset_id: g.media_asset_id || null,
+              media_type: g.media_type === "video_embed" ? "video_embed" : "image",
+              is_featured: Boolean(g.is_featured),
             }))
           );
         } else {
-          setGalleryItems([
-            {
-              title: "Golden hour, somewhere quiet",
-              external_url:
-                "https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?w=700&q=85",
-              category: "Landscape",
-            },
-            {
-              title: "The shape of the sea",
-              external_url:
-                "https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=700&q=85",
-              category: "Travel",
-            },
-            {
-              title: "A weekend in Copenhagen",
-              external_url:
-                "https://images.unsplash.com/photo-1513622470522-26c3c8a854bc?w=700&q=85",
-              category: "Editorial",
-            },
-          ]);
+          setGalleryItems([]);
         }
 
         if (
@@ -290,23 +298,7 @@ export default function BioStudioPage() {
             }))
           );
         } else {
-          setCollaborations([
-            {
-              brand_name: "NORTH",
-              campaign_title: "Visual Travel Story",
-              campaign_summary:
-                "Slow mornings, quiet coastlines and visual direction.",
-              collab_year: "2026",
-              case_study_url: "https://biolio.site",
-            },
-            {
-              brand_name: "AETHER",
-              campaign_title: "Lifestyle Campaign",
-              campaign_summary: "Editorial campaign photography and film.",
-              collab_year: "2026",
-              case_study_url: "https://biolio.site",
-            },
-          ]);
+          setCollaborations([]);
         }
 
         if (Array.isArray(data.blogPosts) && data.blogPosts.length > 0) {
@@ -315,12 +307,14 @@ export default function BioStudioPage() {
               id: b.id,
               title: b.title,
               slug: b.slug,
-              category: b.category || "TRAVEL JOURNAL",
+              category: b.category || "EDITORIAL",
               excerpt: b.excerpt || "",
               content_markdown: b.content_markdown || "",
               status: b.status || "published",
             }))
           );
+        } else {
+          setBlogPosts([]);
         }
 
         if (Array.isArray(data.inquiries)) {
@@ -354,7 +348,10 @@ export default function BioStudioPage() {
           location,
           templateId,
           showBiolioBranding,
+          avatarMediaId,
+          coverMediaId,
           sectionsVisibility,
+          sectionOrder,
           creatorMetrics: [
             { platform: "instagram", label: "Instagram", value: igFollowers },
             { platform: "youtube", label: "YouTube", value: ytSubscribers },
@@ -404,7 +401,7 @@ export default function BioStudioPage() {
         currentPlanLabel={entitlements.activePlanLabel}
         lockReason={
           entitlements.bioLockReason ||
-          "Your workspace is subscribed to Instagram Automation Standalone. Upgrade to the All-in-One Bundle to unlock Biolio Bio Website Studio."
+          "Choose an active Biolio Bio plan to publish your creator website and portfolio."
         }
       />
     );
@@ -535,13 +532,13 @@ export default function BioStudioPage() {
                         className="rounded-lg overflow-hidden border"
                         style={{ borderColor: activeTemplate.theme.border }}
                       >
-                        {g.external_url && (
-                          <img
-                            src={g.external_url}
-                            alt={g.title}
-                            className="h-36 w-full object-cover"
-                          />
-                        )}
+                        {g.external_url && (g.media_type === "video_embed" ? (
+                          <a href={parsePublicVideoLink(g.external_url)?.canonicalUrl || undefined} target="_blank" rel="noopener noreferrer" className="flex h-36 items-center justify-center bg-[#211b29] px-3 text-center text-xs font-bold text-white">
+                            {parsePublicVideoLink(g.external_url)?.hostLabel || "Video link"}
+                          </a>
+                        ) : (
+                          <img src={g.external_url} alt={g.title} className="h-36 w-full object-cover" />
+                        ))}
                         <div className="p-2.5 text-[11px] font-bold truncate">
                           {g.title}
                         </div>
@@ -616,8 +613,8 @@ export default function BioStudioPage() {
       {entitlements?.bioTier === "free" && (
         <FeatureTierBanner
           title="Starter Free Tier Active (5 Links · 6 Gallery Items · 1 Blog Post)"
-          description="Upgrade to Biolio Bio Creator (₹299/mo) or the All-in-One Bundle (₹599/mo) to unlock unlimited links, 30+ gallery items, and all 17 templates."
-          requiredTier="Bio Creator or Bundle"
+          description="Upgrade to Biolio Bio Creator (₹299/mo) for more publishing capacity, or Bio Pro (₹699/mo) for unlimited galleries, publishing, and advanced analytics."
+          requiredTier="Bio Creator or Pro"
         />
       )}
 
@@ -777,6 +774,49 @@ export default function BioStudioPage() {
                     </div>
                   </div>
 
+                  <div className="grid gap-4 rounded-xl border border-[#e5dcd1] bg-[#fbf8f2] p-4 sm:grid-cols-2">
+                    <div className="space-y-3">
+                      <div>
+                        <h4 className="text-xs font-extrabold text-[#211b29]">Profile photo</h4>
+                        <p className="mt-1 text-[11px] leading-5 text-[#857a83]">A clear portrait helps visitors recognize your creator page.</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#f36b3f] text-lg font-extrabold text-white">
+                          {avatarUrl ? <img src={avatarUrl} alt={`${displayName || "Creator"} profile`} className="h-full w-full object-cover" /> : (displayName.trim()[0] || "B").toUpperCase()}
+                        </div>
+                        <CloudinaryUpload
+                          purpose="avatar"
+                          resourceType="image"
+                          bioProfileId={bioProfileId || undefined}
+                          onUploaded={(asset) => {
+                            setAvatarMediaId(asset.id);
+                            setAvatarUrl(asset.secure_url);
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <h4 className="text-xs font-extrabold text-[#211b29]">Cover image</h4>
+                        <p className="mt-1 text-[11px] leading-5 text-[#857a83]">Shown as the visual introduction on your public creator website.</p>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex h-20 items-center justify-center overflow-hidden rounded-lg border border-[#e5dcd1] bg-white text-xs font-semibold text-[#857a83]">
+                          {coverUrl ? <img src={coverUrl} alt={`${displayName || "Creator"} website cover`} className="h-full w-full object-cover" /> : "Your cover image preview"}
+                        </div>
+                        <CloudinaryUpload
+                          purpose="cover"
+                          resourceType="image"
+                          bioProfileId={bioProfileId || undefined}
+                          onUploaded={(asset) => {
+                            setCoverMediaId(asset.id);
+                            setCoverUrl(asset.secure_url);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[10px] font-extrabold uppercase tracking-wider text-[#5e5661] mb-1">
@@ -899,11 +939,17 @@ export default function BioStudioPage() {
                   </div>
 
                   <div className="space-y-2.5">
-                    {links.map((link, idx) => (
-                      <div
-                        key={idx}
-                        className="rounded-[7px] border border-[#e5dcd1] bg-white p-3 space-y-2"
-                      >
+                    {links.length === 0 ? (
+                      <div className="rounded-[7px] border border-dashed border-[#e5dcd1] bg-[#faf8f5] p-8 text-center space-y-2">
+                        <p className="text-xs font-bold text-[#211b29]">No links configured yet</p>
+                        <p className="text-[11px] text-[#7c727e]">Click &quot;Add link&quot; above to connect your YouTube, portfolio, shop, or social channels.</p>
+                      </div>
+                    ) : (
+                      links.map((link, idx) => (
+                        <div
+                          key={idx}
+                          className="rounded-[7px] border border-[#e5dcd1] bg-white p-3 space-y-2"
+                        >
                         <div className="flex items-center gap-2">
                           <span className="text-[#b7aeb8] font-bold">⠿</span>
                           <input
@@ -964,7 +1010,7 @@ export default function BioStudioPage() {
                           className="w-full rounded border border-[#e5dcd1] bg-[#fbf8f2] px-3 py-1.5 text-xs text-[#7c727e]"
                         />
                       </div>
-                    ))}
+                    )))}
                   </div>
                 </div>
               )}
@@ -975,83 +1021,84 @@ export default function BioStudioPage() {
                     Build a page that tells your story.
                   </h3>
                   <p className="text-[11px] text-[#857a83]">
-                    Toggle which sections visitors can explore on your public website.
+                    Choose what visitors can see, then arrange the sections in your preferred order.
                   </p>
-                  {[
-                    ["links", "Smart links & socials", "Your primary destinations", "✦"],
-                    ["gallery", "Visual portfolio gallery", "Curated photography & work", "▦"],
-                    ["collaborations", "Brand collaborations", "Social proof & client work", "◈"],
-                    ["blog", "Blog & journal stories", "Long-form notes and essays", "▤"],
-                    ["contact", "Direct contact inquiry form", "Brand & booking messages", "✉"],
-                  ].map(([key, title, desc, ico]) => (
-                    <div
-                      key={key}
-                      className="flex items-center justify-between rounded-[7px] border border-[#e5dcd1] bg-white p-3.5"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="h-8 w-8 rounded bg-[#f0eafa] text-[#7863a7] flex items-center justify-center text-xs font-bold">
-                          {ico}
-                        </span>
-                        <div>
-                          <div className="text-xs font-bold text-[#211b29]">
-                            {title}
+                  {sectionOrder.map((key, index) => {
+                    const section = PAGE_SECTIONS.find((item) => item.key === key);
+                    if (!section) return null;
+                    const isVisible = Boolean(sectionsVisibility[key]);
+                    return (
+                      <div key={key} className="flex items-center justify-between gap-3 rounded-[7px] border border-[#e5dcd1] bg-white p-3.5">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-[#f0eafa] text-xs font-bold text-[#7863a7]">
+                            {section.icon}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-[#211b29]">{section.title}</div>
+                            <div className="text-[10px] text-[#7c727e]">{section.desc}</div>
                           </div>
-                          <div className="text-[10px] text-[#7c727e]">{desc}</div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <div className="flex flex-col">
+                            <button type="button" disabled={index === 0} onClick={() => movePageSection(key, -1)} aria-label={`Move ${section.title} up`} className="rounded p-1 text-[#695f6c] hover:bg-[#f4efe7] disabled:opacity-30">
+                              <ChevronUp className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" disabled={index === sectionOrder.length - 1} onClick={() => movePageSection(key, 1)} aria-label={`Move ${section.title} down`} className="rounded p-1 text-[#695f6c] hover:bg-[#f4efe7] disabled:opacity-30">
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            aria-pressed={isVisible}
+                            onClick={() => setSectionsVisibility({ ...sectionsVisibility, [key]: !isVisible })}
+                            className={`rounded-full px-3 py-1 text-[10px] font-extrabold ${isVisible ? "bg-[#277a67] text-white" : "bg-[#eee6dc] text-[#7c727e]"}`}
+                          >
+                            {isVisible ? "Visible" : "Hidden"}
+                          </button>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSectionsVisibility({
-                            ...sectionsVisibility,
-                            [key]: !sectionsVisibility[key],
-                          })
-                        }
-                        className={`rounded-full px-3 py-1 text-[10px] font-extrabold cursor-pointer ${
-                          sectionsVisibility[key]
-                            ? "bg-[#277a67] text-white"
-                            : "bg-[#eee6dc] text-[#7c727e]"
-                        }`}
-                      >
-                        {sectionsVisibility[key] ? "Enabled" : "Hidden"}
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
               {activeTab === "gallery" && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h3 className="font-display text-base font-extrabold text-[#211b29]">
                         Your work deserves a window.
                       </h3>
                       <p className="text-[11px] text-[#857a83]">
-                        Curate the images and projects that make people stop scrolling.
+                        Upload images and connect videos from YouTube, Vimeo, Google Drive, X or another video site.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setGalleryItems([
-                          ...galleryItems,
-                          {
-                            title: "New visual story",
-                            external_url:
-                              "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=700&q=85",
-                            category: "Editorial",
-                          },
-                        ])
-                      }
-                      className="inline-flex items-center gap-1 rounded-[5px] bg-[#ee7048] px-3 py-2 text-xs font-extrabold text-white cursor-pointer"
-                    >
-                      <Plus className="h-3.5 w-3.5" /> Add image
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setGalleryItems([...galleryItems, { title: "", caption: "", external_url: "", category: "General", media_type: "image", is_featured: false }])}
+                        className="inline-flex items-center gap-1 rounded-[5px] bg-[#ee7048] px-3 py-2 text-xs font-extrabold text-white"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add image
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGalleryItems([...galleryItems, { title: "", caption: "", external_url: "", category: "Video", media_type: "video_embed", is_featured: false }])}
+                        className="inline-flex items-center gap-1 rounded-[5px] border border-[#e5dcd1] bg-white px-3 py-2 text-xs font-extrabold text-[#211b29]"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add video link
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-3">
-                    {galleryItems.map((item, idx) => (
+                    {galleryItems.length === 0 ? (
+                      <div className="rounded-[7px] border border-dashed border-[#e5dcd1] bg-[#faf8f5] p-8 text-center space-y-2">
+                        <p className="text-xs font-bold text-[#211b29]">Your portfolio is waiting for its first piece.</p>
+                        <p className="text-[11px] text-[#7c727e]">Upload a still image or link a video hosted on another platform.</p>
+                      </div>
+                    ) : (
+                      galleryItems.map((item, idx) => (
                       <div
                         key={idx}
                         className="rounded-[7px] border border-[#e5dcd1] bg-white p-3 space-y-2"
@@ -1065,7 +1112,8 @@ export default function BioStudioPage() {
                               next[idx].title = e.target.value;
                               setGalleryItems(next);
                             }}
-                            placeholder="Image caption / title"
+                            aria-label="Portfolio title"
+                            placeholder={item.media_type === "video_embed" ? "Video title" : "Image or project title"}
                             className="flex-1 rounded border border-[#e5dcd1] px-3 py-1.5 text-xs font-bold"
                           />
                           <input
@@ -1076,11 +1124,28 @@ export default function BioStudioPage() {
                               next[idx].category = e.target.value;
                               setGalleryItems(next);
                             }}
+                            aria-label="Portfolio category"
                             placeholder="Category"
                             className="w-28 rounded border border-[#e5dcd1] px-2.5 py-1.5 text-xs"
                           />
                           <button
                             type="button"
+                            aria-label={item.is_featured ? "Remove featured work" : "Feature this work"}
+                            aria-pressed={item.is_featured}
+                            onClick={() => {
+                              const next = galleryItems.map((entry, entryIndex) => ({
+                                ...entry,
+                                is_featured: entryIndex === idx ? !entry.is_featured : false,
+                              }));
+                              setGalleryItems(next);
+                            }}
+                            className={`rounded px-2 py-1.5 text-[11px] font-bold ${item.is_featured ? "bg-[#fce8df] text-[#a5482c]" : "border border-[#e5dcd1] text-[#695f6c]"}`}
+                          >
+                            {item.is_featured ? "Featured" : "Feature"}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${item.title || "portfolio item"}`}
                             onClick={() =>
                               setGalleryItems(
                                 galleryItems.filter((_, i) => i !== idx)
@@ -1097,13 +1162,42 @@ export default function BioStudioPage() {
                           onChange={(e) => {
                             const next = [...galleryItems];
                             next[idx].external_url = e.target.value;
+                            next[idx].media_asset_id = null;
                             setGalleryItems(next);
                           }}
-                          placeholder="https://images.unsplash.com/... or Cloudinary URL"
+                          aria-label={item.media_type === "video_embed" ? "Video link" : "Image URL"}
+                          placeholder={item.media_type === "video_embed" ? "https://youtu.be/... or a public video link" : "Optional image URL, or upload an image below"}
                           className="w-full rounded border border-[#e5dcd1] bg-[#fbf8f2] px-3 py-1.5 text-xs text-[#7c727e]"
                         />
+                        <textarea
+                          value={item.caption}
+                          onChange={(e) => {
+                            const next = [...galleryItems];
+                            next[idx].caption = e.target.value;
+                            setGalleryItems(next);
+                          }}
+                          aria-label="Portfolio description"
+                          placeholder="A short description of this work (optional)"
+                          rows={2}
+                          maxLength={500}
+                          className="w-full resize-y rounded border border-[#e5dcd1] px-3 py-2 text-xs"
+                        />
+                        {item.media_type === "image" ? (
+                          <CloudinaryUpload
+                            purpose="gallery"
+                            resourceType="image"
+                            compact
+                            onUploaded={(asset) => {
+                              const next = [...galleryItems];
+                              next[idx] = { ...next[idx], external_url: asset.secure_url, media_asset_id: asset.id, media_type: "image" };
+                              setGalleryItems(next);
+                            }}
+                          />
+                        ) : (
+                          <p className="text-[11px] leading-5 text-[#7c727e]">Video files stay on their original platform. For Google Drive, set sharing to “Anyone with the link” so visitors can watch.</p>
+                        )}
                       </div>
-                    ))}
+                    )))}
                   </div>
                 </div>
               )}
@@ -1125,12 +1219,11 @@ export default function BioStudioPage() {
                         setCollaborations([
                           ...collaborations,
                           {
-                            brand_name: "SOLACE",
-                            campaign_title: "Hospitality Campaign",
-                            campaign_summary:
-                              "Visual storytelling and creative direction.",
-                            collab_year: "2026",
-                            case_study_url: "https://biolio.site",
+                            brand_name: "",
+                            campaign_title: "",
+                            campaign_summary: "",
+                            collab_year: new Date().getFullYear().toString(),
+                            case_study_url: "",
                           },
                         ])
                       }
@@ -1141,7 +1234,13 @@ export default function BioStudioPage() {
                   </div>
 
                   <div className="space-y-3">
-                    {collaborations.map((c, idx) => (
+                    {collaborations.length === 0 ? (
+                      <div className="rounded-[7px] border border-dashed border-[#e5dcd1] bg-[#faf8f5] p-8 text-center space-y-2">
+                        <p className="text-xs font-bold text-[#211b29]">No brand collaborations added yet</p>
+                        <p className="text-[11px] text-[#7c727e]">Click &quot;Add collaboration&quot; above to highlight client campaigns and partnerships.</p>
+                      </div>
+                    ) : (
+                      collaborations.map((c, idx) => (
                       <div
                         key={idx}
                         className="rounded-[7px] border border-[#e5dcd1] bg-white p-3.5 space-y-2"
@@ -1193,7 +1292,7 @@ export default function BioStudioPage() {
                           className="w-full rounded border border-[#e5dcd1] bg-[#fbf8f2] px-3 py-1.5 text-xs text-[#5d5360]"
                         />
                       </div>
-                    ))}
+                    )))}
                   </div>
                 </div>
               )}
@@ -1215,14 +1314,12 @@ export default function BioStudioPage() {
                         setBlogPosts([
                           ...blogPosts,
                           {
-                            title: "A slower weekend in Copenhagen",
+                            title: "",
                             slug: `story-${blogPosts.length + 1}`,
-                            category: "TRAVEL JOURNAL",
-                            excerpt:
-                              "Observations, creative process, and things worth remembering.",
-                            content_markdown:
-                              "A little note from the creative life — observations, process and things worth remembering.",
-                            status: "published",
+                            category: "EDITORIAL",
+                            excerpt: "",
+                            content_markdown: "",
+                            status: "draft",
                           },
                         ])
                       }
@@ -1547,13 +1644,10 @@ export default function BioStudioPage() {
 
                 {galleryItems.length > 0 && (
                   <div className="grid grid-cols-2 gap-1.5 mt-3">
-                    {galleryItems.slice(0, 2).map((g, i) => (
-                      <img
-                        key={i}
-                        src={g.external_url}
-                        alt={g.title}
-                        className="h-14 w-full object-cover rounded"
-                      />
+                    {galleryItems.slice(0, 2).map((g, i) => g.media_type === "video_embed" ? (
+                      <div key={i} className="flex h-14 items-center justify-center rounded bg-[#211b29] px-2 text-center text-[8px] font-bold text-white">Video link · {parsePublicVideoLink(g.external_url)?.hostLabel || "External platform"}</div>
+                    ) : (
+                      <img key={i} src={g.external_url} alt={g.title} className="h-14 w-full object-cover rounded" />
                     ))}
                   </div>
                 )}

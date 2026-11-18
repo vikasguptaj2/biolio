@@ -82,7 +82,9 @@ test("B-25: Every top-level static route directory under app/ is reserved in SQL
     path.join(webRoot, "supabase", "migrations", "010_v6_five_layer_module_locks_and_public_rpc.sql"),
     "utf8"
   );
-  const migrationsCombined = (migration009 + migration010).toLowerCase();
+  const migration016Path = path.join(webRoot, "supabase", "migrations", "016_v6_compliance_and_reserved_routes.sql");
+  const migration016 = fs.existsSync(migration016Path) ? fs.readFileSync(migration016Path, "utf8") : "";
+  const migrationsCombined = (migration009 + migration010 + migration016).toLowerCase();
 
   for (const dir of staticDirs) {
     assert.equal(
@@ -190,6 +192,104 @@ test("DPDP User Rights: Data export and erasure endpoints exist with owner autho
 
   assert.equal(fs.existsSync(exportPath), true, "Data export route must exist");
   assert.equal(fs.existsSync(deletePath), true, "Data deletion route must exist");
+});
+
+test("Enterprise v6 Blog CMS: Tiptap schema validation, XSS prevention, and reading time estimation", () => {
+  const tiptapServerPath = path.join(webRoot, "lib", "server", "blog", "tiptap-server.ts");
+  assert.equal(fs.existsSync(tiptapServerPath), true, "lib/server/blog/tiptap-server.ts must exist");
+  const tiptapContent = fs.readFileSync(tiptapServerPath, "utf8");
+
+  assert.match(tiptapContent, /export function validateTiptapJson/, "Must export validateTiptapJson");
+  assert.match(tiptapContent, /export function extractPlainTextFromTiptapJson/, "Must export extractPlainTextFromTiptapJson");
+  assert.match(tiptapContent, /export function calculateReadingTimeMinutes/, "Must export calculateReadingTimeMinutes");
+  assert.match(tiptapContent, /export function renderTiptapJsonToHtml/, "Must export renderTiptapJsonToHtml");
+  assert.match(tiptapContent, /javascript:/, "Must guard against javascript: href schemes");
+  assert.match(tiptapContent, /ALLOWED_TIPTAP_NODES/, "Must define allowlist for nodes");
+});
+
+test("Enterprise v6 Analytics: Purged hardcoded fake metrics and connected to real public.analytics_events", () => {
+  const analyticsPagePath = path.join(webRoot, "app", "dashboard", "analytics", "page.tsx");
+  assert.equal(fs.existsSync(analyticsPagePath), true, "Analytics page must exist");
+  const analyticsContent = fs.readFileSync(analyticsPagePath, "utf8");
+
+  assert.doesNotMatch(analyticsContent, /142/, "Must not contain fake 142 views metric");
+  assert.doesNotMatch(analyticsContent, /68/, "Must not contain fake 68 clicks metric");
+  assert.match(analyticsContent, /analytics_events/, "Must query real public.analytics_events table");
+  assert.match(analyticsContent, /bio\.page_view/, "Must count bio.page_view events");
+  assert.match(analyticsContent, /bio\.link_click/, "Must count bio.link_click events");
+
+  const bioStudioPath = path.join(webRoot, "app", "dashboard", "bio", "page.tsx");
+  const bioStudioContent = fs.readFileSync(bioStudioPath, "utf8");
+  assert.doesNotMatch(bioStudioContent, /Alex Morgan/, "Must not inject fake Alex Morgan demo profile");
+
+  const adminPagePath = path.join(webRoot, "app", "admin", "page.tsx");
+  const adminPageContent = fs.readFileSync(adminPagePath, "utf8");
+  assert.doesNotMatch(adminPageContent, /usersCount \?\? 1/, "Admin page must not fake user count with ?? 1");
+  assert.doesNotMatch(adminPageContent, /workspacesCount \?\? 1/, "Admin page must not fake workspace count with ?? 1");
+});
+
+test("Enterprise v6 Inquiries: Dedicated lead inbox API and two-pane creator inbox UI", () => {
+  const inquiriesRoutePath = path.join(webRoot, "app", "api", "bio", "inquiries", "route.ts");
+  const inquiriesPagePath = path.join(webRoot, "app", "dashboard", "inquiries", "page.tsx");
+
+  assert.equal(fs.existsSync(inquiriesRoutePath), true, "Inquiries API route must exist");
+  assert.equal(fs.existsSync(inquiriesPagePath), true, "Inquiries dashboard page must exist");
+
+  const routeContent = fs.readFileSync(inquiriesRoutePath, "utf8");
+  assert.match(routeContent, /export async function GET/, "Must export GET for inquiry retrieval");
+  assert.match(routeContent, /export async function PATCH/, "Must export PATCH for status updates");
+  assert.match(routeContent, /requireWorkspaceAccess/, "Must verify workspace access");
+  assert.match(routeContent, /bio_contact_submissions/, "Must query bio_contact_submissions table");
+
+  const pageContent = fs.readFileSync(inquiriesPagePath, "utf8");
+  assert.match(pageContent, /mailto:/, "Must support direct email reply action");
+  assert.match(pageContent, /updateStatus/, "Must handle inquiry status updates");
+});
+
+test("Enterprise v6 Publishing CMS: Tiptap rich-text editor component and content dashboard", () => {
+  const tiptapComponentPath = path.join(webRoot, "components", "blog", "tiptap-editor.tsx");
+  const contentPagePath = path.join(webRoot, "app", "dashboard", "content", "page.tsx");
+
+  assert.equal(fs.existsSync(tiptapComponentPath), true, "TiptapEditor component must exist");
+  assert.equal(fs.existsSync(contentPagePath), true, "Content dashboard page must exist");
+
+  const componentContent = fs.readFileSync(tiptapComponentPath, "utf8");
+  assert.match(componentContent, /immediatelyRender:\s*false/, "Must configure immediatelyRender: false for SSR safety");
+  assert.match(componentContent, /useEditor/, "Must use Tiptap useEditor hook");
+
+  const pageContent = fs.readFileSync(contentPagePath, "utf8");
+  assert.match(pageContent, /<TiptapEditor/, "Must render TiptapEditor component");
+  assert.match(pageContent, /\/api\/bio\/studio/, "Must connect to bio studio API");
+});
+
+test("Enterprise v6 Non-destructive persistence: Studio API preserves entity IDs and tokens", () => {
+  const studioRoutePath = path.join(webRoot, "app", "api", "bio", "studio", "route.ts");
+  const studioContent = fs.readFileSync(studioRoutePath, "utf8");
+
+  assert.doesNotMatch(studioContent, /DELETE FROM bio_links/i, "Must not perform bulk destructive DELETE on links");
+  assert.doesNotMatch(studioContent, /DELETE FROM bio_gallery_items/i, "Must not perform bulk destructive DELETE on gallery items");
+  assert.match(studioContent, /opaque_token/, "Must preserve opaque_token on links for click attribution");
+  assert.match(studioContent, /content_json/, "Must persist Tiptap content_json on blog posts");
+
+  const publicBioPath = path.join(webRoot, "app", "[handle]", "page.tsx");
+  const publicBioContent = fs.readFileSync(publicBioPath, "utf8");
+  assert.match(publicBioContent, /\/r\/\$\{link\.opaque_token\}/, "Public bio must route clicks through /r/[token] for click attribution");
+});
+
+test("Enterprise v6 Migrations: 016 reserved routes and 017 Tiptap blog schema with FTS GIN index exist", () => {
+  const migration016Path = path.join(webRoot, "supabase", "migrations", "016_v6_compliance_and_reserved_routes.sql");
+  const migration017Path = path.join(webRoot, "supabase", "migrations", "017_v6_tiptap_and_stable_bio_persistence.sql");
+
+  assert.equal(fs.existsSync(migration016Path), true, "016 migration must exist");
+  assert.equal(fs.existsSync(migration017Path), true, "017 migration must exist");
+
+  const migration016Content = fs.readFileSync(migration016Path, "utf8");
+  assert.match(migration016Content, /'content'/, "Must reserve 'content' handle");
+  assert.match(migration016Content, /'inquiries'/, "Must reserve 'inquiries' handle");
+
+  const migration017Content = fs.readFileSync(migration017Path, "utf8");
+  assert.match(migration017Content, /content_json\s+JSONB/, "Must add content_json JSONB to bio_blog_posts");
+  assert.match(migration017Content, /idx_bio_blog_posts_fts/, "Must create GIN full-text search index");
 });
 
 

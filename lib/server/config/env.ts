@@ -17,12 +17,12 @@ export interface PublicEnvConfig {
 export interface ServerEnvConfig extends PublicEnvConfig {
   SUPABASE_SERVICE_ROLE_KEY: string;
   ADMIN_EMAIL: string;
-  ADMIN_SUPER_EMAIL: string;
   ADMIN_PASSWORD_HASH: string;
-  ADMIN_SUPER_PASSWORD: string;
   ADMIN_SESSION_SECRET: string;
   ADMIN_SESSION_EPOCH: number;
   ADMIN_IP_ALLOWLIST: string[];
+  TOKEN_ENCRYPTION_SECRET: string;
+  OAUTH_STATE_SECRET: string;
   COUPON_HASH_PEPPER: string;
   META_APP_SECRET: string;
   INSTAGRAM_WEBHOOK_VERIFY_TOKEN: string;
@@ -54,22 +54,16 @@ export function getServerEnv(): ServerEnvConfig {
   return {
     ...pub,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-    ADMIN_EMAIL: (
-      process.env.ADMIN_EMAIL ||
-      process.env.ADMIN_SUPER_EMAIL ||
-      ""
-    )
-      .trim()
-      .toLowerCase(),
-    ADMIN_SUPER_EMAIL: (process.env.ADMIN_SUPER_EMAIL || "").trim().toLowerCase(),
+    ADMIN_EMAIL: (process.env.ADMIN_EMAIL || "").trim().toLowerCase(),
     ADMIN_PASSWORD_HASH: (process.env.ADMIN_PASSWORD_HASH || "").trim(),
-    ADMIN_SUPER_PASSWORD: process.env.ADMIN_SUPER_PASSWORD || "",
     ADMIN_SESSION_SECRET: process.env.ADMIN_SESSION_SECRET || "",
     ADMIN_SESSION_EPOCH: Number(process.env.ADMIN_SESSION_EPOCH || "1") || 1,
     ADMIN_IP_ALLOWLIST: rawAllowlist
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
+    TOKEN_ENCRYPTION_SECRET: process.env.TOKEN_ENCRYPTION_SECRET || "",
+    OAUTH_STATE_SECRET: process.env.OAUTH_STATE_SECRET || "",
     COUPON_HASH_PEPPER: process.env.COUPON_HASH_PEPPER || "",
     META_APP_SECRET:
       process.env.META_APP_SECRET || process.env.INSTAGRAM_APP_SECRET || "",

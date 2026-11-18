@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hashCouponCode } from "@/lib/server/coupons/hash";
+import { handleRouteError, requireWorkspaceAccess, verifySameOrigin } from "@/lib/server/http/guard";
 
 interface PlanRow {
+  module: string;
+  is_active_for_sale: boolean;
   price_monthly_minor: number;
   price_annual_minor: number;
   currency: string;
@@ -28,26 +30,26 @@ interface CouponPreviewResult {
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json(
-        { error: { code: "UNAUTHENTICATED", message: "Sign in required." } },
-        { status: 401, headers: { "Cache-Control": "no-store" } }
-      );
+    verifySameOrigin(request);
+    const ctx = await requireWorkspaceAccess({ minRole: "admin" });
+    const raw = await request.text();
+    if (raw.length > 8_192) {
+      return NextResponse.json({ error: { code: "VALIDATION_ERROR", message: "Request is too large." } }, { status: 413, headers: { "Cache-Control": "no-store" } });
     }
+    let body: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(raw || "{}");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid body");
+      body = parsed as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ error: { code: "VALIDATION_ERROR", message: "Invalid request body." } }, { status: 400, headers: { "Cache-Control": "no-store" } });
+    }
+    const rawCode = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
+    const planId = typeof body.planId === "string" ? body.planId.trim() : "";
+    const planVersion = Number(body.planVersion ?? 1);
+    const billingInterval = body.billingInterval === "annual" ? "annual" : body.billingInterval === "monthly" ? "monthly" : "";
 
-    const body = await request.json().catch(() => ({}));
-    const rawCode = String(body.code || "").trim().toUpperCase();
-    const planId = String(body.planId || "").trim();
-    const planVersion = Number(body.planVersion || 1);
-    const billingInterval =
-      body.billingInterval === "annual" ? "annual" : "monthly";
-
-    if (!rawCode || !planId) {
+    if (!rawCode || rawCode.length > 64 || !/^[a-z0-9_]{1,64}$/i.test(planId) || !Number.isSafeInteger(planVersion) || planVersion < 1 || !billingInterval) {
       return NextResponse.json(
         {
           error: {
@@ -56,22 +58,6 @@ export async function POST(request: NextRequest) {
           },
         },
         { status: 422, headers: { "Cache-Control": "no-store" } }
-      );
-    }
-
-    // Get user workspace membership
-    const { data: memberships } = await supabase
-      .from("workspace_members")
-      .select("workspace_id")
-      .eq("user_id", user.id)
-      .eq("status", "active")
-      .limit(1);
-
-    const workspaceId = memberships?.[0]?.workspace_id;
-    if (!workspaceId) {
-      return NextResponse.json(
-        { error: { code: "FORBIDDEN", message: "No active workspace." } },
-        { status: 403, headers: { "Cache-Control": "no-store" } }
       );
     }
 
@@ -89,12 +75,12 @@ export async function POST(request: NextRequest) {
         };
       }
     )
-      .select("price_monthly_minor, price_annual_minor, currency")
+          .select("module, is_active_for_sale, price_monthly_minor, price_annual_minor, currency")
       .eq("id", planId)
       .eq("version", planVersion)
       .maybeSingle();
 
-    if (!plan) {
+    if (!plan || !plan.is_active_for_sale || plan.module !== "bio") {
       return NextResponse.json(
         { error: { code: "NOT_FOUND", message: "Plan not found." } },
         { status: 404, headers: { "Cache-Control": "no-store" } }
@@ -116,8 +102,8 @@ export async function POST(request: NextRequest) {
     )(
       "preview_coupon",
       {
-        p_workspace_id: workspaceId,
-        p_user_email: user.email || "",
+        p_workspace_id: ctx.workspaceId,
+        p_user_email: ctx.userEmail,
         p_raw_code: codeHash,
         p_plan_id: planId,
         p_plan_version: planVersion,
@@ -146,10 +132,9 @@ export async function POST(request: NextRequest) {
       message: previewRes.message || "Coupon applied successfully.",
     });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Coupon preview failed.";
+    if (err instanceof Error && "status" in err) return handleRouteError(err);
     return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message } },
+      { error: { code: "INTERNAL_ERROR", message: "Coupon preview failed." } },
       { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }

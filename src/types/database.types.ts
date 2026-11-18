@@ -7,6 +7,11 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.18"
+  }
   public: {
     Tables: {
       admin_audit_logs: {
@@ -67,6 +72,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      admin_login_attempts: {
+        Row: {
+          attempted_at: string
+          email_hash: string
+          id: string
+          ip_hash: string
+          success: boolean
+        }
+        Insert: {
+          attempted_at?: string
+          email_hash: string
+          id?: string
+          ip_hash: string
+          success?: boolean
+        }
+        Update: {
+          attempted_at?: string
+          email_hash?: string
+          id?: string
+          ip_hash?: string
+          success?: boolean
+        }
+        Relationships: []
       }
       admin_permission_definitions: {
         Row: {
@@ -142,6 +171,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      admin_sessions: {
+        Row: {
+          created_at: string
+          email_hash: string
+          epoch: number
+          expires_at: string
+          id: string
+          ip_hash: string
+          revoked_at: string | null
+          step_up_at: string
+          token_hash: string
+          user_agent_hash: string
+        }
+        Insert: {
+          created_at?: string
+          email_hash: string
+          epoch?: number
+          expires_at: string
+          id?: string
+          ip_hash: string
+          revoked_at?: string | null
+          step_up_at: string
+          token_hash: string
+          user_agent_hash: string
+        }
+        Update: {
+          created_at?: string
+          email_hash?: string
+          epoch?: number
+          expires_at?: string
+          id?: string
+          ip_hash?: string
+          revoked_at?: string | null
+          step_up_at?: string
+          token_hash?: string
+          user_agent_hash?: string
+        }
+        Relationships: []
       }
       admin_user_roles: {
         Row: {
@@ -647,7 +715,10 @@ export type Database = {
         Row: {
           bio_profile_id: string
           category: string
+          content_json: Json
           content_markdown: string
+          content_schema_version: number
+          content_text: string
           cover_media_id: string | null
           created_at: string
           excerpt: string | null
@@ -666,7 +737,10 @@ export type Database = {
         Insert: {
           bio_profile_id: string
           category?: string
+          content_json?: Json
           content_markdown?: string
+          content_schema_version?: number
+          content_text?: string
           cover_media_id?: string | null
           created_at?: string
           excerpt?: string | null
@@ -685,7 +759,10 @@ export type Database = {
         Update: {
           bio_profile_id?: string
           category?: string
+          content_json?: Json
           content_markdown?: string
+          content_schema_version?: number
+          content_text?: string
           cover_media_id?: string | null
           created_at?: string
           excerpt?: string | null
@@ -1181,6 +1258,120 @@ export type Database = {
         }
         Relationships: []
       }
+      checkout_sessions: {
+        Row: {
+          amount_minor: number
+          billing_interval: Database["public"]["Enums"]["billing_interval"]
+          completed_at: string | null
+          coupon_redemption_id: string | null
+          created_at: string
+          currency: string
+          id: string
+          idempotency_key: string
+          plan_id: string
+          plan_version: number
+          razorpay_order_id: string | null
+          razorpay_payment_id: string | null
+          status: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          amount_minor: number
+          billing_interval?: Database["public"]["Enums"]["billing_interval"]
+          completed_at?: string | null
+          coupon_redemption_id?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          idempotency_key: string
+          plan_id: string
+          plan_version?: number
+          razorpay_order_id?: string | null
+          razorpay_payment_id?: string | null
+          status?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          amount_minor?: number
+          billing_interval?: Database["public"]["Enums"]["billing_interval"]
+          completed_at?: string | null
+          coupon_redemption_id?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          idempotency_key?: string
+          plan_id?: string
+          plan_version?: number
+          razorpay_order_id?: string | null
+          razorpay_payment_id?: string | null
+          status?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checkout_sessions_coupon_redemption_id_fkey"
+            columns: ["coupon_redemption_id"]
+            isOneToOne: false
+            referencedRelation: "coupon_redemptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checkout_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checkout_sessions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contact_messages: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean
+          message: string
+          page_id: string
+          sender_email: string
+          sender_name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message: string
+          page_id: string
+          sender_email?: string
+          sender_name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          page_id?: string
+          sender_email?: string
+          sender_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_messages_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "creator_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       coupon_code_batches: {
         Row: {
           assigned_email_domain: string | null
@@ -1633,6 +1824,41 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      handle_history: {
+        Row: {
+          changed_at: string
+          id: string
+          new_handle: string
+          old_handle: string
+          redirect_until: string
+          workspace_id: string
+        }
+        Insert: {
+          changed_at?: string
+          id?: string
+          new_handle: string
+          old_handle: string
+          redirect_until?: string
+          workspace_id: string
+        }
+        Update: {
+          changed_at?: string
+          id?: string
+          new_handle?: string
+          old_handle?: string
+          redirect_until?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "handle_history_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
         ]
@@ -2840,7 +3066,9 @@ export type Database = {
           bio_max_gallery_items: number | null
           bio_max_links: number | null
           bio_remove_branding: boolean
+          bio_state: string
           bio_tier: Database["public"]["Enums"]["plan_tier"]
+          ig_state: string
           ig_tier: Database["public"]["Enums"]["plan_tier"]
           override_expires_at: string | null
           override_reason: string | null
@@ -2863,7 +3091,9 @@ export type Database = {
           bio_max_gallery_items?: number | null
           bio_max_links?: number | null
           bio_remove_branding?: boolean
+          bio_state?: string
           bio_tier?: Database["public"]["Enums"]["plan_tier"]
+          ig_state?: string
           ig_tier?: Database["public"]["Enums"]["plan_tier"]
           override_expires_at?: string | null
           override_reason?: string | null
@@ -2886,7 +3116,9 @@ export type Database = {
           bio_max_gallery_items?: number | null
           bio_max_links?: number | null
           bio_remove_branding?: boolean
+          bio_state?: string
           bio_tier?: Database["public"]["Enums"]["plan_tier"]
+          ig_state?: string
           ig_tier?: Database["public"]["Enums"]["plan_tier"]
           override_expires_at?: string | null
           override_reason?: string | null
@@ -2992,13 +3224,6 @@ export type Database = {
             referencedRelation: "user_profiles"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "workspace_entitlements_workspace_id_fkey"
-            columns: ["id"]
-            isOneToOne: true
-            referencedRelation: "workspace_entitlements"
-            referencedColumns: ["workspace_id"]
-          },
         ]
       }
     }
@@ -3006,23 +3231,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      apply_workspace_plan_entitlements: {
-        Args: {
-          p_billing_interval?: string
-          p_override_reason?: string
-          p_plan_id: string
-          p_workspace_id: string
-        }
-        Returns: Json
-      }
-      admin_override_workspace_status: {
-        Args: {
-          p_override_reason?: string
-          p_status: string
-          p_workspace_id: string
-        }
-        Returns: Json
-      }
       can_edit_workspace: { Args: { p_workspace_id: string }; Returns: boolean }
       confirm_coupon_redemption: {
         Args: { p_redemption_id: string; p_subscription_id: string }
@@ -3051,12 +3259,20 @@ export type Database = {
         Returns: Json
       }
       gen_opaque_token: { Args: { p_num_bytes?: number }; Returns: string }
+      get_bio_analytics: {
+        Args: { p_from: string; p_to: string; p_workspace_id: string }
+        Returns: Json
+      }
       has_admin_permission: {
         Args: { p_permission_id: string }
         Returns: boolean
       }
       is_active_workspace_member: {
         Args: { p_workspace_id: string }
+        Returns: boolean
+      }
+      is_module_unlocked: {
+        Args: { p_module: string; p_workspace_id: string }
         Returns: boolean
       }
       preview_coupon: {
@@ -3072,6 +3288,28 @@ export type Database = {
         }
         Returns: Json
       }
+      process_razorpay_payment: {
+        Args: {
+          p_amount_minor: number
+          p_checkout_session_id: string
+          p_currency: string
+          p_payment_id: string
+          p_provider_event_row_id: string
+        }
+        Returns: Json
+      }
+      process_razorpay_refund: {
+        Args: {
+          p_payment_id: string
+          p_provider_event_row_id: string
+          p_refund_amount_minor: number
+        }
+        Returns: Json
+      }
+      project_workspace_entitlements: {
+        Args: { p_workspace_id: string }
+        Returns: Json
+      }
       provision_workspace_and_claim_handle: {
         Args: {
           p_creator_role?: string
@@ -3081,29 +3319,56 @@ export type Database = {
         }
         Returns: Json
       }
+      public_get_bio: { Args: { p_handle: string }; Returns: Json }
       publish_bio_snapshot: {
         Args: { p_expected_draft_version: number; p_workspace_id: string }
         Returns: Json
+      }
+      purge_expired_analytics: { Args: never; Returns: number }
+      record_link_click: {
+        Args: {
+          p_device_class?: string
+          p_link_id: string
+          p_referrer_host?: string
+          p_visitor_daily_hmac: string
+        }
+        Returns: undefined
       }
       release_coupon_reservation: {
         Args: { p_redemption_id: string }
         Returns: boolean
       }
-      reserve_coupon_for_checkout: {
-        Args: {
-          p_billing_interval: Database["public"]["Enums"]["billing_interval"]
-          p_currency: string
-          p_idempotency_key: string
-          p_plan_id: string
-          p_plan_version: number
-          p_raw_code: string
-          p_subtotal_minor: number
-          p_user_email: string
-          p_user_id: string
-          p_workspace_id: string
-        }
-        Returns: Json
-      }
+      reserve_coupon_for_checkout:
+        | {
+            Args: {
+              p_billing_interval: Database["public"]["Enums"]["billing_interval"]
+              p_currency: string
+              p_idempotency_key: string
+              p_plan_id: string
+              p_plan_version: number
+              p_raw_code: string
+              p_subtotal_minor: number
+              p_user_email: string
+              p_user_id: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_billing_interval: Database["public"]["Enums"]["billing_interval"]
+              p_currency?: string
+              p_idempotency_key: string
+              p_plan_id: string
+              p_plan_version: number
+              p_raw_code: string
+              p_subtotal_minor: number
+              p_user_email: string
+              p_user_id: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
       save_creator_page: {
         Args: {
           p_blocks: Json
@@ -3175,7 +3440,7 @@ export type Database = {
   }
 }
 
-type DatabaseWithoutInternals = Database
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
 type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 

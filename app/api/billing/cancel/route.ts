@@ -33,9 +33,13 @@ export async function POST(request: NextRequest) {
     const db = createAdminClient() as any;
 
     const { data: sub, error: subErr } = (await db
-      .from("workspace_subscriptions")
+      .from("subscriptions")
       .select("id, workspace_id, status, current_period_end, cancel_at_period_end")
       .eq("workspace_id", ctx.workspaceId)
+      .eq("module", "bio")
+      .in("status", ["trialing", "active", "past_due"])
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle()) as { data: SubscriptionRow | null; error: unknown };
 
     if (subErr || !sub) {
@@ -46,12 +50,13 @@ export async function POST(request: NextRequest) {
     }
 
     await db
-      .from("workspace_subscriptions")
+      .from("subscriptions")
       .update({
         cancel_at_period_end: true,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", sub.id);
+      .eq("id", sub.id)
+      .eq("workspace_id", ctx.workspaceId);
 
     try {
       await db.from("admin_audit_logs").insert({
@@ -71,9 +76,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       status: "scheduled_for_cancellation",
       access_until: sub.current_period_end,
-      message: `Your subscription will remain active until ${new Date(
-        sub.current_period_end
-      ).toLocaleDateString()}, after which it will not renew.`,
+      message: `Your paid access stays active until ${new Date(sub.current_period_end).toLocaleDateString()}. Biolio will not automatically charge you again.`,
     });
   } catch (error) {
     return handleRouteError(error);

@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   requireWorkspaceAccess,
   handleRouteError,
+  verifySameOrigin,
 } from "@/lib/server/http/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -12,8 +13,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * Exports all creator personal data, bio content, blog entries, and automation configurations
  * in portable JSON format.
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
+    verifySameOrigin(request);
     const ctx = await requireWorkspaceAccess({ minRole: "owner" });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

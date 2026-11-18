@@ -1,68 +1,99 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { evaluateWorkspaceEntitlements } from "@/lib/entitlements";
+import { connection } from "next/server";
+import { getSessionContext } from "@/lib/supabase/server";
 import {
   LayoutDashboard,
   Globe,
-  MessageSquareCode,
   BarChart3,
   CreditCard,
+  Image as ImageIcon,
   Settings,
   ExternalLink,
   LogOut,
   ShieldAlert,
   Lock,
   Sparkles,
+  BookOpen,
+  Inbox,
 } from "lucide-react";
 
-export const instant = false;
-
-interface WorkspaceRow {
-  id: string;
-  name: string;
-  slug: string;
-  creator_role?: string | null;
-  status: string;
-  intended_modules?: string[] | null;
-  workspace_entitlements?: Record<string, unknown> | Array<Record<string, unknown>> | null;
-}
-
-export default async function DashboardLayout({
+export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return (
+    <Suspense fallback={<DashboardLoadingState />}>
+      <DashboardSessionLayout>{children}</DashboardSessionLayout>
+    </Suspense>
+  );
+}
+
+function DashboardLoadingState() {
+  return (
+    <main
+      className="flex min-h-screen items-center justify-center bg-[#f4efe7] px-6 text-[#211b29]"
+      aria-busy="true"
+      aria-label="Loading creator workspace"
+    >
+      <div className="w-full max-w-sm rounded-2xl border border-[#e7ded3] bg-[#fffdf8] p-8 text-center shadow-sm">
+        <p className="font-display text-3xl font-extrabold tracking-tight">
+          biolio<span className="text-[#f36b3f]">.</span>
+        </p>
+        <p className="mt-3 text-sm text-[#7c727e]">Loading your creator workspace…</p>
+        <div className="mx-auto mt-5 h-1.5 w-32 overflow-hidden rounded-full bg-[#eee6dc]">
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-[#f36b3f]" />
+        </div>
+      </div>
+    </main>
+  );
+}
+
+async function DashboardSessionLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  // Supabase auth may inspect token expiry with Date.now(). Do this only after
+  // a request exists so Next's Cache Components prerender never runs auth code.
+  await connection();
+  const { user, profile, workspace, entitlements: sessionEntitlements, isSuspended } =
+    await getSessionContext();
 
   if (!user) {
     redirect("/signin");
   }
 
-  // Fetch active workspace + entitlements for this user
-  const { data: workspaces } = await supabase
-    .from("workspaces")
-    .select(
-      "id, name, slug, creator_role, status, intended_modules, workspace_entitlements(*)"
-    )
-    .eq("owner_id", user.id)
-    .order("created_at", { ascending: true })
-    .limit(1);
+  if (isSuspended) {
+    return (
+      <div className="min-h-screen bg-[#211b29] text-white flex items-center justify-center p-6">
+        <div className="max-w-md w-full rounded-2xl border border-red-500/30 bg-red-950/20 p-8 text-center space-y-4">
+          <ShieldAlert className="h-12 w-12 text-red-400 mx-auto" />
+          <h1 className="text-xl font-bold text-white">Account Suspended</h1>
+          <p className="text-xs text-[#b9aebb] leading-relaxed">
+            Your creator account has been suspended due to a moderation or policy action.
+            Please reach out to support@biolio.site if you believe this is in error.
+          </p>
+          <form action="/auth/signout" method="POST">
+            <button
+              type="submit"
+              className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-xs font-semibold text-white hover:bg-white/20 transition-all"
+            >
+              <LogOut className="h-3.5 w-3.5" /> Sign out
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
-  const activeWorkspace = (workspaces?.[0] as unknown as WorkspaceRow) || null;
-  const rawEnt = Array.isArray(activeWorkspace?.workspace_entitlements)
-    ? activeWorkspace.workspace_entitlements[0]
-    : activeWorkspace?.workspace_entitlements;
+  const activeWorkspace = workspace;
+  const { evaluateWorkspaceEntitlements } = await import("@/lib/entitlements");
+  const entitlements = sessionEntitlements || evaluateWorkspaceEntitlements();
 
-  const entitlements = evaluateWorkspaceEntitlements(
-    rawEnt as Record<string, unknown> | undefined,
-    activeWorkspace?.intended_modules
-  );
-
-  const initials = (activeWorkspace?.name || user.email || "AM")
+  const initials = (activeWorkspace?.name || profile?.full_name || user.email || "AM")
     .slice(0, 2)
     .toUpperCase();
 
@@ -171,37 +202,32 @@ export default async function DashboardLayout({
               </span>
             </Link>
             <Link
+              href="/dashboard/content"
+              className="flex items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-[11px] font-semibold text-[#c9c0cb] hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <BookOpen className="h-4 w-4 text-[#ffa27e]" />
+              Blog &amp; publishing CMS
+            </Link>
+            <Link
+              href="/dashboard/inquiries"
+              className="flex items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-[11px] font-semibold text-[#c9c0cb] hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <Inbox className="h-4 w-4 text-[#e4b5f4]" />
+              Audience &amp; inquiries
+            </Link>
+            <Link
               href="/dashboard/analytics"
               className="flex items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-[11px] font-semibold text-[#c9c0cb] hover:bg-white/10 hover:text-white transition-colors"
             >
               <BarChart3 className="h-4 w-4 text-[#c9b5f4]" />
               Bio analytics &amp; insights
             </Link>
-          </nav>
-
-          {/* Section 3: Instagram Automation */}
-          <div className="flex items-center justify-between px-2.5 mb-1.5 mt-4">
-            <span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[1.3px] text-[#9b8da0]">
-              <span className="h-2 w-2 rounded-full bg-[#6ac2a2]" />
-              Instagram Automation
-            </span>
-            {entitlements.isAutomationProductLocked ? (
-              <span className="inline-flex items-center gap-1 rounded bg-[#a62639]/30 px-1.5 py-0.5 text-[8px] font-extrabold uppercase text-[#ff8f85]">
-                <Lock className="h-2.5 w-2.5" /> Locked
-              </span>
-            ) : (
-              <span className="rounded bg-white/15 px-1.5 py-0.5 text-[8px] font-extrabold uppercase text-[#6ac2a2]">
-                {entitlements.igTier}
-              </span>
-            )}
-          </div>
-          <nav className="space-y-1 mb-4">
             <Link
-              href="/dashboard/automation"
+              href="/dashboard/media"
               className="flex items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-[11px] font-semibold text-[#c9c0cb] hover:bg-white/10 hover:text-white transition-colors"
             >
-              <MessageSquareCode className="h-4 w-4 text-[#6ac2a2]" />
-              Automations &amp; flow builder
+              <ImageIcon className="h-4 w-4 text-[#6ac2a2]" />
+              Media library
             </Link>
           </nav>
 
@@ -232,16 +258,16 @@ export default async function DashboardLayout({
           <div className="rounded-[7px] border border-white/15 bg-[#332a39] p-3.5">
             <div className="text-xs font-bold text-white flex items-center gap-1.5">
               <Sparkles className="h-3.5 w-3.5 text-[#f36b3f]" />
-              Make your presence bigger.
+              Make your site yours.
             </div>
             <p className="text-[10px] text-[#c5b9c7] mt-1 leading-relaxed">
-              Unlock both Bio Studio &amp; Instagram Automation with the All-in-One Bundle.
+              Keep your portfolio images organized and ready for your website.
             </p>
             <Link
-              href="/dashboard/billing"
+              href="/dashboard/media"
               className="mt-2.5 inline-block rounded-[5px] bg-[#f36b3f] px-3 py-1.5 text-[10px] font-extrabold text-white hover:bg-[#e55f34]"
             >
-              Explore Pro &amp; Bundle ↗
+              Open media library ↗
             </Link>
           </div>
 

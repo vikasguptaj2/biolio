@@ -12,9 +12,13 @@ import { getServerEnv } from "@/lib/server/config/env";
 function deriveEncryptionKey(): Buffer {
   const env = getServerEnv();
   const secretSource =
+    env.TOKEN_ENCRYPTION_SECRET ||
     env.ADMIN_SESSION_SECRET ||
     env.SUPABASE_SERVICE_ROLE_KEY ||
-    "biolio-default-dev-aes256-key-salt";
+    "";
+  if (secretSource.length < 32) {
+    throw new Error("A 32-character TOKEN_ENCRYPTION_SECRET is required to encrypt integration tokens.");
+  }
   return crypto.createHash("sha256").update(secretSource).digest();
 }
 
@@ -70,7 +74,10 @@ export function generateOAuthState(params: {
   userId: string;
 }): string {
   const env = getServerEnv();
-  const secret = env.ADMIN_SESSION_SECRET || "biolio_oauth_state_hmac_secret";
+  const secret = env.OAUTH_STATE_SECRET || env.ADMIN_SESSION_SECRET;
+  if (secret.length < 32) {
+    throw new Error("A 32-character OAUTH_STATE_SECRET is required to sign OAuth state.");
+  }
   const exp = Date.now() + 10 * 60 * 1000; // 10 minutes
   const nonce = crypto.randomBytes(16).toString("hex");
 
@@ -99,7 +106,8 @@ export function verifyOAuthState(state: string): {
 } | null {
   try {
     const env = getServerEnv();
-    const secret = env.ADMIN_SESSION_SECRET || "biolio_oauth_state_hmac_secret";
+    const secret = env.OAUTH_STATE_SECRET || env.ADMIN_SESSION_SECRET;
+    if (secret.length < 32) return null;
     const [payloadB64, signature] = state.split(".");
     if (!payloadB64 || !signature) return null;
 
